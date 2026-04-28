@@ -1977,55 +1977,66 @@ function setupAuthListener(onReady) {
   });
 }
 
-function watchUserDoc(uid) {
-  // If Firestore never responds within 20s, bail out and let the user try again.
-  const watchdogTimer = setTimeout(() => {
-    unsub();
-    showAuth('login', 'Could not load your profile. Check your connection and try again.');
-  }, 20000);
+async function watchUserDoc(uid, attempt = 0) {
+  // Use .get() (plain HTTP) instead of onSnapshot (WebSocket) for the initial
+  // profile load — far more reliable when Firestore realtime connectivity is
+  // degraded or security rules are slow to evaluate.
+  try {
+    const snap = await Promise.race([
+      db.collection('users').doc(uid).get(),
+      mkTimeout(12000),
+    ]);
 
-  const unsub = db.collection('users').doc(uid).onSnapshot(async snap => {
     if (!snap.exists) {
-      // Profile not written yet (race after register) — wait for the next snapshot.
-      // If it never comes the watchdog above will recover.
+      // Profile not yet written (race right after register) — retry a few times.
+      if (attempt < 6) {
+        setTimeout(() => watchUserDoc(uid, attempt + 1), 800 + attempt * 400);
+      } else {
+        showAuth('login', 'Could not find your profile. Please try signing in again.');
+      }
       return;
     }
-    clearTimeout(watchdogTimer);
+
     const profile = { id: snap.id, ...snap.data() };
     state.myProfile = profile;
 
     if (!profile.coupleId) {
-      // Only render pairing screen if it isn't already shown
-      if (byId('authPanel')?.querySelector('.pair-card')) return;
       showPairing(profile);
+      // Subscribe via onSnapshot ONLY to detect when the partner links up so
+      // the pairing screen auto-advances without a manual refresh.
+      const unsub = db.collection('users').doc(uid).onSnapshot(snap2 => {
+        if (!snap2.exists) return;
+        const updated = { id: snap2.id, ...snap2.data() };
+        if (updated.coupleId) {
+          unsub();
+          state.myProfile = updated;
+          watchUserDoc(uid);
+        }
+      }, () => { /* ignore realtime errors here — user can pair manually */ });
       return;
     }
 
-    // Paired: stop watching own doc, load couple + partner, then start app.
-    // Guard against double-start: connect() may have already populated state
-    // and called startApp() directly — if the app layout is already visible,
-    // there's nothing more to do here.
-    unsub();
+    // Guard against double-start (connect() may have already called startApp).
     const appLayout = byId('appLayout');
     if (appLayout && !appLayout.hidden) return;
-    try {
-      const [coupleSnap, partnerSnap] = await Promise.race([
-        Promise.all([
-          db.collection('couples').doc(profile.coupleId).get(),
-          profile.partnerId ? db.collection('users').doc(profile.partnerId).get() : Promise.resolve(null),
-        ]),
-        mkTimeout(15000),
-      ]);
-      state.coupleDoc      = coupleSnap.exists ? { id: coupleSnap.id, ...coupleSnap.data() } : null;
-      state.partnerProfile = (partnerSnap && partnerSnap.exists) ? { id: partnerSnap.id, ...partnerSnap.data() } : null;
-      await startApp();
-    } catch (err) {
-      const msg = err?.code === 'auth/network-request-failed' || err?.message === 'timeout'
-        ? 'Connection timed out. Check your internet and try again.'
-        : 'Could not load your data. Please try again.';
-      showAuth('login', msg);
-    }
-  }, () => { clearTimeout(watchdogTimer); showAuth('login', 'Connection error. Please sign in again.'); });
+
+    const [coupleSnap, partnerSnap] = await Promise.race([
+      Promise.all([
+        db.collection('couples').doc(profile.coupleId).get(),
+        profile.partnerId ? db.collection('users').doc(profile.partnerId).get() : Promise.resolve(null),
+      ]),
+      mkTimeout(12000),
+    ]);
+    state.coupleDoc      = coupleSnap.exists ? { id: coupleSnap.id, ...coupleSnap.data() } : null;
+    state.partnerProfile = (partnerSnap && partnerSnap.exists) ? { id: partnerSnap.id, ...partnerSnap.data() } : null;
+    await startApp();
+
+  } catch (err) {
+    const msg = err?.message === 'timeout' || err?.code === 'auth/network-request-failed'
+      ? 'Connection timed out. Check your internet and try again.'
+      : `Could not load your data (${err?.code ?? err?.message ?? 'unknown'}). Please try again.`;
+    showAuth('login', msg);
+  }
 }
 
 /* ═══════════════════════════════════════════
