@@ -428,10 +428,12 @@ function showAuth(mode = 'login', startError = null) {
           ]);
         }
         succeeded = true;
-        // On success keep the button disabled while the auth-state transition plays out.
-        // If the transition renders a new screen (pair card or app), this form is
-        // discarded. If it fails and calls showAuth(), a fresh form with an enabled
-        // button is rendered, so we never leave the user stuck.
+        // Auth succeeded — replace the frozen button with a loading indicator so
+        // the user knows something is happening while Firestore loads.
+        showAuthOverlay(h('div', { class: 'auth-card', style: { alignItems: 'center', gap: '1rem' } },
+          h('div', { class: 'auth-loading-spinner' }),
+          h('p', { style: { color: 'var(--c-muted, #888)', fontSize: '0.9rem', margin: '0' } }, 'Loading…'),
+        ));
       } catch (err) {
         showErr(authErrMsg(err.code));
       } finally {
@@ -1976,8 +1978,19 @@ function setupAuthListener(onReady) {
 }
 
 function watchUserDoc(uid) {
+  // If Firestore never responds within 20s, bail out and let the user try again.
+  const watchdogTimer = setTimeout(() => {
+    unsub();
+    showAuth('login', 'Could not load your profile. Check your connection and try again.');
+  }, 20000);
+
   const unsub = db.collection('users').doc(uid).onSnapshot(async snap => {
-    if (!snap.exists) return; // profile not yet written (race after register)
+    if (!snap.exists) {
+      // Profile not written yet (race after register) — wait for the next snapshot.
+      // If it never comes the watchdog above will recover.
+      return;
+    }
+    clearTimeout(watchdogTimer);
     const profile = { id: snap.id, ...snap.data() };
     state.myProfile = profile;
 
@@ -1996,21 +2009,23 @@ function watchUserDoc(uid) {
     const appLayout = byId('appLayout');
     if (appLayout && !appLayout.hidden) return;
     try {
-      const fetchTimeout = new Promise((_, rej) =>
-        setTimeout(() => rej(new Error('timeout')), 15000)
-      );
       const [coupleSnap, partnerSnap] = await Promise.race([
         Promise.all([
           db.collection('couples').doc(profile.coupleId).get(),
           profile.partnerId ? db.collection('users').doc(profile.partnerId).get() : Promise.resolve(null),
         ]),
-        fetchTimeout,
+        mkTimeout(15000),
       ]);
       state.coupleDoc      = coupleSnap.exists ? { id: coupleSnap.id, ...coupleSnap.data() } : null;
       state.partnerProfile = (partnerSnap && partnerSnap.exists) ? { id: partnerSnap.id, ...partnerSnap.data() } : null;
       await startApp();
-    } catch { showAuth('login', 'Could not load your data. Check your connection and try again.'); }
-  }, () => showAuth('login', 'Connection error. Please sign in again.'));
+    } catch (err) {
+      const msg = err?.code === 'auth/network-request-failed' || err?.message === 'timeout'
+        ? 'Connection timed out. Check your internet and try again.'
+        : 'Could not load your data. Please try again.';
+      showAuth('login', msg);
+    }
+  }, () => { clearTimeout(watchdogTimer); showAuth('login', 'Connection error. Please sign in again.'); });
 }
 
 /* ═══════════════════════════════════════════
