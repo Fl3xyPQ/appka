@@ -7,13 +7,13 @@ firebase.initializeApp(FIREBASE_CONFIG);
 const db   = firebase.firestore();
 const auth = firebase.auth();
 
-// Edge Tracking Prevention blocks Firebase's default IndexedDB/localStorage
-// persistence. Fall back to SESSION (sessionStorage) so auth tokens survive
-// within the tab but don't rely on cross-site storage access.
-auth.setPersistence(firebase.auth.Auth.Persistence.SESSION).catch(() => {});
-
 // Long-polling avoids WebSocket issues behind strict tracking/firewall policies.
 db.settings({ experimentalForceLongPolling: true, merge: true });
+
+// Edge Tracking Prevention blocks IndexedDB. Use SESSION persistence so tokens
+// are stored in sessionStorage (never blocked for first-party sites).
+// We intentionally do NOT await this — a failure must not block onAuthStateChanged.
+try { auth.setPersistence(firebase.auth.Auth.Persistence.SESSION); } catch { /* ignore */ }
 
 let messaging = null;
 try { messaging = firebase.messaging(); } catch { /* unsupported */ }
@@ -229,12 +229,14 @@ function startListeners() {
   const cid = coupleId();
   if (!cid) return;
 
+  const onErr = err => { if (err.code !== 'permission-denied') console.warn('[firestore]', err.code, err.message); };
+
   state._unsubs.push(
     db.collection('posts').where('coupleId','==',cid).orderBy('date','desc')
       .onSnapshot(snap => {
         state.posts = snap.docs.map(d => ({ ...d.data(), id: d.id }));
         if (state.view === 'feed') { const m = byId('mainArea'); if (m) navigateTo('feed'); }
-      }),
+      }, onErr),
     db.collection('messages').where('coupleId','==',cid).orderBy('date','asc')
       .onSnapshot(snap => {
         state.messages = snap.docs.map(d => ({ ...d.data(), id: d.id }));
@@ -243,22 +245,22 @@ function startListeners() {
           if (ml) { renderMessages(ml); requestAnimationFrame(() => { ml.scrollTop = ml.scrollHeight; }); }
         }
         updateUnreadBadge();
-      }),
+      }, onErr),
     db.collection('memories').where('coupleId','==',cid).orderBy('createdAt','desc')
       .onSnapshot(snap => {
         state.memories = snap.docs.map(d => ({ ...d.data(), id: d.id }));
         if (state.view === 'memories' && state._memTab === 'memories') navigateTo('memories');
-      }),
+      }, onErr),
     db.collection('bucket').where('coupleId','==',cid).orderBy('createdAt','asc')
       .onSnapshot(snap => {
         state.bucket = snap.docs.map(d => ({ ...d.data(), id: d.id }));
         if (state.view === 'memories' && state._memTab === 'bucket') navigateTo('memories');
-      }),
+      }, onErr),
     db.collection('songs').where('coupleId','==',cid).orderBy('date','desc')
       .onSnapshot(snap => {
         state.songs = snap.docs.map(d => ({ ...d.data(), id: d.id }));
         if (state.view === 'music') navigateTo('music');
-      }),
+      }, onErr),
     db.collection('checkins').where('coupleId','==',cid)
       .onSnapshot(snap => {
         state.checkins = {};
@@ -267,20 +269,20 @@ function startListeners() {
           const widget = document.querySelector('.checkin-card');
           if (widget) widget.replaceWith(buildCheckinWidget());
         }
-      }),
+      }, onErr),
     db.collection('notifications').where('toUid','==',myId()).orderBy('date','desc').limit(50)
       .onSnapshot(snap => {
         state.notifications = snap.docs.map(d => ({ ...d.data(), id: d.id }));
         updateNotifBadge();
         if (byId('notifPanel') && !byId('notifPanel').hidden) renderNotifPanel();
-      }),
+      }, onErr),
   );
 
   if (state.partnerProfile?.id) {
     state._unsubs.push(
       db.collection('users').doc(state.partnerProfile.id).onSnapshot(snap => {
         if (snap.exists) { state.partnerProfile = { id: snap.id, ...snap.data() }; renderSidebar(); }
-      })
+      }, onErr)
     );
   }
 }
@@ -1982,24 +1984,36 @@ let _authListenerActive = false; // singleton guard
 function setupAuthListener(onReady) {
   // Only ever register ONE onAuthStateChanged listener for the lifetime of the page.
   if (_authListenerActive) {
-    console.warn('[auth] setupAuthListener called again — ignoring duplicate');
     if (onReady) onReady();
     return;
   }
   _authListenerActive = true;
 
   let signOutTimer = null;
+  let authFired = false;
+
+  // Hard fallback: if onAuthStateChanged hasn't fired within 6s, Firebase is
+  // blocked entirely (e.g. Edge Tracking Prevention blocking IndexedDB init).
+  // Remove the splash and show the login form so the user isn't stuck forever.
+  const authTimeout = setTimeout(() => {
+    if (authFired) return;
+    if (onReady) { onReady(); onReady = null; }
+    showAuth('login', 'Sign-in service is slow to respond. Please try signing in.');
+  }, 6000);
 
   auth.onAuthStateChanged(user => {
+    authFired = true;
+    clearTimeout(authTimeout);
     if (onReady) { onReady(); onReady = null; }
 
     if (!user) {
-      // Firebase often fires null transiently during token refresh.
-      // Debounce so a null that's immediately followed by a user event
-      // doesn't flash the login screen.
+      // Stop Firestore listeners immediately to prevent permission-denied errors
+      // while the auth token is no longer valid.
+      stopListeners();
+      // Debounce the UI transition — Firebase often fires null transiently
+      // during token refresh; wait before actually showing the login screen.
       signOutTimer = setTimeout(() => {
         state.authUser = null; state.myProfile = null; state.partnerProfile = null; state.coupleDoc = null;
-        stopListeners();
         byId('appLayout').hidden = true;
         showAuth();
       }, 2000);
