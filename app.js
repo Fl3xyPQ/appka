@@ -366,7 +366,14 @@ function showTerms() {
     ),
     h('button', { class: 'terms-accept', onClick: () => {
       localStorage.setItem('ours-terms-v1', '1');
-      setupAuthListener();
+      // setupAuthListener is already running (started at init). Just let the
+      // existing onAuthStateChanged handler take over now that terms are accepted.
+      // Calling it again would add a second listener causing duplicate loads.
+      if (auth.currentUser) {
+        watchUserDoc(auth.currentUser.uid);
+      } else {
+        showAuth();
+      }
     }}, 'I Accept ♡'),
   );
   showAuthOverlay(card);
@@ -1971,7 +1978,17 @@ function runSplash(onDone) {
 /* ═══════════════════════════════════════════
    AUTH STATE MACHINE
 ═══════════════════════════════════════════ */
+let _authListenerActive = false; // singleton guard
+
 function setupAuthListener(onReady) {
+  // Only ever register ONE onAuthStateChanged listener for the lifetime of the page.
+  if (_authListenerActive) {
+    console.warn('[auth] setupAuthListener called again — ignoring duplicate');
+    if (onReady) onReady();
+    return;
+  }
+  _authListenerActive = true;
+
   let signOutTimer = null;
 
   auth.onAuthStateChanged(user => {
@@ -1979,9 +1996,9 @@ function setupAuthListener(onReady) {
     if (onReady) { onReady(); onReady = null; }
 
     if (!user) {
-      // Firebase often fires null immediately after login during token refresh,
-      // followed by the real user event milliseconds later. Debounce sign-out
-      // handling so a transient null doesn't flash the login screen.
+      // Firebase often fires null transiently during token refresh.
+      // Debounce so a null that's immediately followed by a user event
+      // doesn't flash the login screen.
       signOutTimer = setTimeout(() => {
         state.authUser = null; state.myProfile = null; state.partnerProfile = null; state.coupleDoc = null;
         stopListeners();
@@ -1991,10 +2008,9 @@ function setupAuthListener(onReady) {
       return;
     }
 
-    // User is present — cancel any pending sign-out.
     if (signOutTimer) { clearTimeout(signOutTimer); signOutTimer = null; }
 
-    // Skip re-loading if the app is already visible for this uid (token refresh).
+    // Skip if the app is already fully visible for this exact uid.
     if (state.authUser?.uid === user.uid && !byId('appLayout').hidden) {
       console.log('[auth] same user, app already visible — skipping reload');
       return;
@@ -2005,7 +2021,14 @@ function setupAuthListener(onReady) {
   });
 }
 
+let _watchUserDocRunning = false; // mutex — only one load at a time
+
 async function watchUserDoc(uid, attempt = 0) {
+  if (_watchUserDocRunning && attempt === 0) {
+    console.log('[watchUserDoc] already in progress, ignoring duplicate call');
+    return;
+  }
+  _watchUserDocRunning = true;
   console.log('[watchUserDoc] start, uid:', uid, 'attempt:', attempt);
   try {
     console.log('[watchUserDoc] fetching user doc...');
@@ -2031,6 +2054,7 @@ async function watchUserDoc(uid, attempt = 0) {
 
     if (!profile.coupleId) {
       console.log('[watchUserDoc] no coupleId → showing pairing screen');
+      _watchUserDocRunning = false; // release mutex so re-entry works after pairing
       showPairing(profile);
       const unsub = db.collection('users').doc(uid).onSnapshot(snap2 => {
         if (!snap2.exists) return;
@@ -2048,6 +2072,7 @@ async function watchUserDoc(uid, attempt = 0) {
     const appLayout = byId('appLayout');
     if (appLayout && !appLayout.hidden) {
       console.log('[watchUserDoc] appLayout already visible, skipping double-start');
+      _watchUserDocRunning = false;
       return;
     }
 
@@ -2065,8 +2090,10 @@ async function watchUserDoc(uid, attempt = 0) {
     console.log('[watchUserDoc] calling startApp()');
     await startApp();
     console.log('[watchUserDoc] startApp() done');
+    _watchUserDocRunning = false;
 
   } catch (err) {
+    _watchUserDocRunning = false;
     console.error('[watchUserDoc] error:', err);
     const msg = err?.message === 'timeout' || err?.code === 'auth/network-request-failed'
       ? 'Connection timed out. Check your internet and try again.'
