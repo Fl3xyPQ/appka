@@ -1922,20 +1922,22 @@ function runSplash(onDone) {
 ═══════════════════════════════════════════ */
 function setupAuthListener(onReady) {
   auth.onAuthStateChanged(user => {
-    if (onReady) { onReady(); onReady = null; }
     if (!user) {
       state.authUser = null; state.myProfile = null; state.partnerProfile = null; state.coupleDoc = null;
       stopListeners();
       byId('appLayout').hidden = true;
+      if (onReady) { onReady(); onReady = null; }
       showAuth();
       return;
     }
     state.authUser = user;
-    watchUserDoc(user.uid);
+    watchUserDoc(user.uid, onReady);
+    onReady = null; // ownership transferred to watchUserDoc
   });
 }
 
-function watchUserDoc(uid) {
+function watchUserDoc(uid, onReady) {
+  const callOnReady = () => { if (onReady) { onReady(); onReady = null; } };
   const unsub = db.collection('users').doc(uid).onSnapshot(async snap => {
     if (!snap.exists) return; // profile not yet written (race after register)
     const profile = { id: snap.id, ...snap.data() };
@@ -1944,6 +1946,7 @@ function watchUserDoc(uid) {
     if (!profile.coupleId) {
       // Only render pairing screen if it isn't already shown
       if (byId('authPanel')?.querySelector('.pair-card')) return;
+      callOnReady();
       showPairing(profile);
       return;
     }
@@ -1963,9 +1966,10 @@ function watchUserDoc(uid) {
       ]);
       state.coupleDoc      = coupleSnap.exists ? { id: coupleSnap.id, ...coupleSnap.data() } : null;
       state.partnerProfile = (partnerSnap && partnerSnap.exists) ? { id: partnerSnap.id, ...partnerSnap.data() } : null;
+      callOnReady();
       await startApp();
-    } catch { showAuth(); }
-  }, () => showAuth());
+    } catch { callOnReady(); showAuth(); }
+  }, () => { callOnReady(); showAuth(); });
 }
 
 /* ═══════════════════════════════════════════
