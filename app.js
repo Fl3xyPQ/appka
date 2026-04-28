@@ -396,17 +396,31 @@ function showAuth(mode = 'login') {
       btn.disabled = true;
       btn.textContent = isReg ? 'Creating…' : 'Signing in…';
       errorEl.style.display = 'none';
+      // Helper: reject after ms milliseconds with a network-failed error so a
+      // hanging Firebase request doesn't leave the button in a loading state forever.
+      const mkTimeout = ms => new Promise((_, rej) =>
+        setTimeout(() => rej({ code: 'auth/network-request-failed' }), ms)
+      );
       try {
         if (isReg) {
-          const cred = await auth.createUserWithEmailAndPassword(email, pass);
+          const cred = await Promise.race([
+            auth.createUserWithEmailAndPassword(email, pass),
+            mkTimeout(20000),
+          ]);
           const name = nameIn.value.trim();
-          await db.collection('users').doc(cred.user.uid).set({
-            name, bio: '', color: selectedColor, initial: name[0].toUpperCase(),
-            inviteCode: genCode(), partnerId: null, coupleId: null,
-            avatarData: null, lastChatOpenAt: 0, createdAt: Date.now(),
-          });
+          await Promise.race([
+            db.collection('users').doc(cred.user.uid).set({
+              name, bio: '', color: selectedColor, initial: name[0].toUpperCase(),
+              inviteCode: genCode(), partnerId: null, coupleId: null,
+              avatarData: null, lastChatOpenAt: 0, createdAt: Date.now(),
+            }),
+            mkTimeout(15000),
+          ]);
         } else {
-          await auth.signInWithEmailAndPassword(email, pass);
+          await Promise.race([
+            auth.signInWithEmailAndPassword(email, pass),
+            mkTimeout(20000),
+          ]);
         }
       } catch (err) {
         showErr(authErrMsg(err.code));
@@ -1885,10 +1899,17 @@ function runSplash(onDone) {
   // Show for 1.8s then fade out
   setTimeout(() => {
     splash.classList.add('splash-exit');
-    splash.addEventListener('transitionend', () => {
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
       splash.remove();
       onDone();
-    }, { once: true });
+    };
+    splash.addEventListener('transitionend', finish, { once: true });
+    // Fallback: if transitionend never fires (e.g. prefers-reduced-motion disables transitions)
+    // ensure the app still initialises after the CSS transition duration (600ms).
+    setTimeout(finish, 700);
   }, 1800);
 }
 
@@ -1925,9 +1946,15 @@ function watchUserDoc(uid) {
     // Paired: stop watching own doc, load couple + partner, then start app
     unsub();
     try {
-      const [coupleSnap, partnerSnap] = await Promise.all([
-        db.collection('couples').doc(profile.coupleId).get(),
-        profile.partnerId ? db.collection('users').doc(profile.partnerId).get() : Promise.resolve(null),
+      const fetchTimeout = new Promise((_, rej) =>
+        setTimeout(() => rej(new Error('timeout')), 15000)
+      );
+      const [coupleSnap, partnerSnap] = await Promise.race([
+        Promise.all([
+          db.collection('couples').doc(profile.coupleId).get(),
+          profile.partnerId ? db.collection('users').doc(profile.partnerId).get() : Promise.resolve(null),
+        ]),
+        fetchTimeout,
       ]);
       state.coupleDoc      = coupleSnap.exists ? { id: coupleSnap.id, ...coupleSnap.data() } : null;
       state.partnerProfile = (partnerSnap && partnerSnap.exists) ? { id: partnerSnap.id, ...partnerSnap.data() } : null;
