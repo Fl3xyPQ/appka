@@ -1897,17 +1897,18 @@ function sendSongToChat(song) {
 ════════════════════════════════════════════ */
 function runSplash(onDone) {
   const splash = byId('splash');
-  if (!splash) { onDone(); return; }
+  if (!splash) { onDone(() => {}); return; } // no-op removeSplash when element is absent
 
-  // Show for 1.8s then fade out
+  // Show for 1.8s then fade out. The splash element stays in the DOM (invisible)
+  // until the caller invokes the removeSplash callback, preventing a white-screen
+  // gap while Firebase resolves the auth state.
   setTimeout(() => {
     splash.classList.add('splash-exit');
-    let finished = false;
+    let called = false;
     const finish = () => {
-      if (finished) return;
-      finished = true;
-      splash.remove();
-      onDone();
+      if (called) return;
+      called = true;
+      onDone(() => splash.remove());
     };
     splash.addEventListener('transitionend', finish, { once: true });
     // Fallback: if transitionend never fires (e.g. prefers-reduced-motion disables transitions)
@@ -1919,8 +1920,9 @@ function runSplash(onDone) {
 /* ═══════════════════════════════════════════
    AUTH STATE MACHINE
 ═══════════════════════════════════════════ */
-function setupAuthListener() {
+function setupAuthListener(onReady) {
   auth.onAuthStateChanged(user => {
+    if (onReady) { onReady(); onReady = null; }
     if (!user) {
       state.authUser = null; state.myProfile = null; state.partnerProfile = null; state.coupleDoc = null;
       stopListeners();
@@ -2000,11 +2002,12 @@ function init() {
     });
   }
 
-  runSplash(() => {
+  runSplash((removeSplash) => {
     if (!localStorage.getItem('ours-terms-v1')) {
+      removeSplash();
       showTerms();
     } else {
-      setupAuthListener();
+      setupAuthListener(removeSplash);
     }
   });
 }
