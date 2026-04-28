@@ -372,11 +372,12 @@ function showTerms() {
   showAuthOverlay(card);
 }
 
-function showAuth(mode = 'login') {
+function showAuth(mode = 'login', startError = null) {
   let currentMode = mode;
   function render() {
     const isReg = currentMode === 'register';
-    const errorEl = h('div', { class: 'auth-error', style: { display: 'none' } });
+    const errorEl = h('div', { class: 'auth-error', style: startError ? {} : { display: 'none' } });
+    if (startError) { errorEl.textContent = startError; startError = null; }
     const emailIn = h('input', { class: 'auth-input', type: 'email', placeholder: 'your@email.com', autocomplete: 'email' });
     const passIn  = h('input', { class: 'auth-input', type: 'password', placeholder: '••••••••', autocomplete: isReg ? 'new-password' : 'current-password' });
     const nameIn  = isReg ? h('input', { class: 'auth-input', type: 'text', placeholder: 'Your name', maxlength: '24' }) : null;
@@ -468,12 +469,20 @@ function genCode() {
 }
 function authErrMsg(code) {
   const m = {
-    'auth/wrong-password': 'Incorrect password.', 'auth/user-not-found': 'No account with that email.',
-    'auth/invalid-email': 'Enter a valid email.', 'auth/email-already-in-use': 'That email is already registered.',
-    'auth/weak-password': 'Password must be at least 6 characters.', 'auth/too-many-requests': 'Too many attempts. Try again later.',
-    'auth/invalid-credential': 'Email or password incorrect.', 'auth/network-request-failed': 'Network error. Check your connection.',
+    'auth/wrong-password':            'Incorrect password.',
+    'auth/user-not-found':            'No account with that email.',
+    'auth/invalid-email':             'Enter a valid email.',
+    'auth/email-already-in-use':      'That email is already registered.',
+    'auth/weak-password':             'Password must be at least 6 characters.',
+    'auth/too-many-requests':         'Too many attempts. Try again later.',
+    'auth/invalid-credential':        'Email or password incorrect.',
+    'auth/invalid-login-credentials': 'Email or password incorrect.',
+    'auth/network-request-failed':    'Network error. Check your connection.',
+    'auth/operation-not-allowed':     'Email/password sign-in is not enabled for this project.',
+    'auth/user-disabled':             'This account has been disabled.',
+    'auth/internal-error':            'An internal error occurred. Please try again.',
   };
-  return m[code] || 'Something went wrong. Please try again.';
+  return m[code] || `Something went wrong (${code ?? 'unknown'}). Please try again.`;
 }
 
 async function showPairing(userDoc) {
@@ -488,7 +497,10 @@ async function showPairing(userDoc) {
     if (entered.length < 4) { showErr('Enter your partner\'s invite code.'); return; }
     connectBtn.disabled = true; connectBtn.textContent = 'Connecting…'; errorEl.style.display = 'none';
     try {
-      const snap = await db.collection('users').where('inviteCode','==',entered).get();
+      const snap = await Promise.race([
+        db.collection('users').where('inviteCode','==',entered).get(),
+        mkTimeout(15000),
+      ]);
       if (snap.empty) throw new Error('not-found');
       const partnerDoc = snap.docs[0];
       if (partnerDoc.id === myId()) throw new Error('own');
@@ -517,8 +529,14 @@ async function showPairing(userDoc) {
       await startApp();
     } catch (err) {
       connectBtn.disabled = false; connectBtn.textContent = 'Connect ♡';
-      const msgs = { 'not-found': "That code doesn't exist.", 'own': "That's your own code 😊 Share it with your partner.", 'taken': 'That person is already paired.' };
-      showErr(msgs[err.message] || 'Something went wrong. Try again.');
+      const msgs = {
+        'not-found':                    "That code doesn't exist.",
+        'own':                          "That's your own code 😊 Share it with your partner.",
+        'taken':                        'That person is already paired.',
+        'couple-missing':              'Pairing failed. Please try again.',
+        'auth/network-request-failed': 'Network error — check your connection and try again.',
+      };
+      showErr(msgs[err.message] || msgs[err.code] || 'Something went wrong. Try again.');
     }
   }
   function showErr(msg) { errorEl.textContent = msg; errorEl.style.display = ''; }
@@ -1991,8 +2009,8 @@ function watchUserDoc(uid) {
       state.coupleDoc      = coupleSnap.exists ? { id: coupleSnap.id, ...coupleSnap.data() } : null;
       state.partnerProfile = (partnerSnap && partnerSnap.exists) ? { id: partnerSnap.id, ...partnerSnap.data() } : null;
       await startApp();
-    } catch { showAuth(); }
-  }, () => showAuth());
+    } catch { showAuth('login', 'Could not load your data. Check your connection and try again.'); }
+  }, () => showAuth('login', 'Connection error. Please sign in again.'));
 }
 
 /* ═══════════════════════════════════════════
