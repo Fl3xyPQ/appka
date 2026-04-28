@@ -435,7 +435,10 @@ function showAuth(mode = 'login', startError = null) {
           h('p', { style: { color: 'var(--c-muted, #888)', fontSize: '0.9rem', margin: '0' } }, 'Loading…'),
         ));
       } catch (err) {
-        showErr(authErrMsg(err.code));
+        console.error('Firebase auth error:', err);
+        const msg = authErrMsg(err.code);
+        // Show the raw Firebase error code/message in dev so we can diagnose
+        showErr(`${msg}\n[${err.code ?? 'no-code'}${err.message ? ': ' + err.message : ''}]`);
       } finally {
         if (!succeeded) {
           btn.disabled = false;
