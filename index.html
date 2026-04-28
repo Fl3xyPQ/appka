@@ -1,14 +1,18 @@
 <!doctype html>
-<html lang="cs">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>ours.</title>
 
+  <!-- PWA -->
   <link rel="manifest" href="manifest.json">
-  <meta name="theme-color" content="#0E0B09">
+  <link rel="icon" href="favicon.ico" sizes="any">
+  <link rel="icon" href="icon-192.png" type="image/svg+xml">
+  <meta name="theme-color" content="#FFF0F5">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="ours.">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -18,93 +22,90 @@
 </head>
 <body>
 
+  <!-- SPLASH -->
   <div id="splash" class="splash" aria-hidden="true">
     <div class="splash-inner">
       <div class="splash-heart">♡</div>
       <div class="splash-brand">ours.</div>
-      <div class="splash-sub">je to jenom naše, bobe</div>
+      <div class="splash-sub">a space just for you two</div>
     </div>
   </div>
 
-  <div class="layout">
+  <!-- AUTH OVERLAY (terms, login, register, pairing) -->
+  <div id="authOverlay" class="auth-overlay" hidden>
+    <div id="authPanel" class="auth-panel"></div>
+  </div>
 
+  <!-- NOTIFICATION PANEL -->
+  <div id="notifPanel" class="notif-panel" hidden>
+    <div class="notif-header">
+      <span class="notif-title">notifications</span>
+      <button id="notifMarkAll" class="notif-mark-all">mark all read</button>
+      <button id="notifClose" class="notif-close" aria-label="Close">✕</button>
+    </div>
+    <div id="notifList" class="notif-list"></div>
+  </div>
+  <div id="notifBackdrop" class="notif-backdrop" hidden></div>
+
+  <!-- MAIN APP (hidden until auth complete) -->
+  <div class="layout" id="appLayout" hidden>
+
+    <!-- SIDEBAR -->
     <nav class="sidebar" aria-label="Main navigation">
       <a class="brand" href="#" onclick="return false" aria-label="ours. home">ours.</a>
-
       <ul class="nav-list" role="list">
-        <li>
-          <button class="nav-btn active" data-view="feed" aria-label="Feed">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.2"/><rect x="14" y="3" width="7" height="7" rx="1.2"/><rect x="3" y="14" width="7" height="7" rx="1.2"/><rect x="14" y="14" width="7" height="7" rx="1.2"/></svg>
-            <span>Feed</span>
-          </button>
-        </li>
-        <li>
-          <button class="nav-btn" data-view="chat" aria-label="Chat">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-            <span>Chat</span>
-          </button>
-        </li>
-        <li>
-          <button class="nav-btn" data-view="memories" aria-label="Memories">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
-            <span>Vzpomínky</span>
-          </button>
-        </li>
-        <li>
-          <button class="nav-btn" data-view="profile" aria-label="Profile">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-            <span>Profil</span>
-          </button>
-        </li>
-        <li>
-          <button class="nav-btn" data-view="music" aria-label="Music">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-            <span>Hudba</span>
-          </button>
-        </li>
+        <li><button class="nav-btn active" data-view="feed"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.2"/><rect x="14" y="3" width="7" height="7" rx="1.2"/><rect x="3" y="14" width="7" height="7" rx="1.2"/><rect x="14" y="14" width="7" height="7" rx="1.2"/></svg><span>Feed</span></button></li>
+        <li><button class="nav-btn" data-view="chat"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span>Chat</span></button></li>
+        <li><button class="nav-btn" data-view="memories"><svg viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg><span>Memories</span></button></li>
+        <li><button class="nav-btn" data-view="profile"><svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span>Profile</span></button></li>
+        <li><button class="nav-btn" data-view="music"><svg viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span>Music</span></button></li>
       </ul>
-
-      <div class="sidebar-footer" id="sidebarFooter" aria-live="polite">
-        <!-- rendered by JS -->
-      </div>
+      <div class="sidebar-footer" id="sidebarFooter" aria-live="polite"></div>
     </nav>
 
     <!-- MAIN -->
-    <main class="main-area" id="mainArea" aria-live="polite">
-      <!-- views rendered by JS -->
-    </main>
+    <main class="main-area" id="mainArea" aria-live="polite"></main>
 
   </div>
 
+  <!-- BOTTOM NAV (mobile) -->
   <nav class="bottom-nav" id="bottomNav" aria-label="Mobile navigation">
-    <button class="nav-btn" data-view="feed" aria-label="Feed">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.2"/><rect x="14" y="3" width="7" height="7" rx="1.2"/><rect x="3" y="14" width="7" height="7" rx="1.2"/><rect x="14" y="14" width="7" height="7" rx="1.2"/></svg>
-      <span>Zeď</span>
+    <button class="nav-btn" data-view="feed">
+      <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.2"/><rect x="14" y="3" width="7" height="7" rx="1.2"/><rect x="3" y="14" width="7" height="7" rx="1.2"/><rect x="14" y="14" width="7" height="7" rx="1.2"/></svg>
+      <span>Feed</span>
     </button>
-    <button class="nav-btn" data-view="chat" aria-label="Chat">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    <button class="nav-btn" data-view="chat">
+      <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
       <span>Chat</span>
     </button>
-    <button class="nav-btn" data-view="memories" aria-label="Memories">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
-      <span>Vzpomínky</span>
+    <button class="nav-btn" id="notifNavBtn" onclick="openNotifPanel()">
+      <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      <span>Alerts</span>
+      <span class="nav-badge" id="notifBadge" hidden></span>
     </button>
-    <button class="nav-btn" data-view="profile" aria-label="Profile">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-      <span>Profil</span>
+    <button class="nav-btn" data-view="memories">
+      <svg viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+      <span>Memories</span>
     </button>
-    <button class="nav-btn" data-view="music" aria-label="Music">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-      <span>Hudba</span>
+    <button class="nav-btn" data-view="music">
+      <svg viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+      <span>Music</span>
     </button>
   </nav>
 
+  <!-- LIGHTBOX -->
   <div id="lightbox" class="lightbox" hidden>
     <div class="lightbox-bg" id="lightboxBg"></div>
-    <button class="lightbox-close" id="lightboxClose" aria-label="Zavřít fotečku">✕</button>
+    <button class="lightbox-close" id="lightboxClose" aria-label="Close photo">✕</button>
     <img class="lightbox-img" id="lightboxImg" alt="">
   </div>
 
+  <!-- Firebase SDK -->
+  <script src="firebase-config.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging-compat.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

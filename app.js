@@ -1,183 +1,105 @@
 'use strict';
 
-/* ═══════════════════════════════════════════
-   CONFIG  —  edit this to personalize
-═══════════════════════════════════════════ */
+/* ════════════════════════════════════════════
+   FIREBASE INIT
+════════════════════════════════════════════ */
+firebase.initializeApp(FIREBASE_CONFIG);
+const db   = firebase.firestore();
+const auth = firebase.auth();
+let messaging = null;
+try { messaging = firebase.messaging(); } catch { /* unsupported */ }
+
+/* ════════════════════════════════════════════
+   CONFIG
+════════════════════════════════════════════ */
 const CONFIG = {
-  people: {
-    ari: { id: 'ari', name: 'Ari', color: '#C87941', initial: 'A',
-           bio: 'Making the ordinary feel like an adventure.' },
-    noa: { id: 'noa', name: 'Noa', color: '#9B7AB5', initial: 'N',
-           bio: 'Collector of small moments and big feelings.' },
-  },
-  startDate: '2024-02-14',
   locale: 'en-GB',
-  keys: {
-    posts:     'ours-posts-v3',
-    messages:  'ours-msgs-v3',
-    memories:  'ours-mems-v3',
-    user:      'ours-user-v3',
-    liked:     'ours-liked-v3',
-    reactions: 'ours-rxns-v3',
-    chatVisit: 'ours-chatvisit-v3',
-    avatars:   'ours-avatars-v3',
-    profiles:  'ours-profiles-v3',
-    checkins:  'ours-checkins-v3',
-    bucket:    'ours-bucket-v3',
-    songs:     'ours-songs-v3',
-  },
+  colors: [
+    { id: 'amber',    hex: '#C87941' },
+    { id: 'lavender', hex: '#9B7AB5' },
+    { id: 'rose',     hex: '#C45F7A' },
+    { id: 'sage',     hex: '#5A8A70' },
+    { id: 'sky',      hex: '#4A7B9D' },
+    { id: 'coral',    hex: '#D4724A' },
+  ],
 };
 
-/* ═══════════════════════════════════════════
-   SEED DATA
-═══════════════════════════════════════════ */
-const SEED_POSTS = [
-  {
-    id: 'p-s1', author: 'noa',
-    imageUrl: '',
-    caption: 'this morning was so good I don\'t have words for it.\ncoffee, you, the light through the curtain.\nstayed in bed until it was embarrassing.',
-    date: new Date(Date.now() - 4 * 86400000).toISOString(),
-    likes: 2,
-    comments: [{ id: 'c-s1', author: 'ari', text: 'should have stayed even longer honestly' }],
-  },
-  {
-    id: 'p-s2', author: 'ari',
-    imageUrl: 'https://images.unsplash.com/photo-1511994298241-608e28f14fde?w=700&q=80',
-    caption: 'that soup you made',
-    date: new Date(Date.now() - 3 * 86400000).toISOString(),
-    likes: 1,
-    comments: [],
-  },
-  {
-    id: 'p-s3', author: 'noa',
-    imageUrl: '',
-    caption: 'I keep thinking about that random tuesday. we didn\'t do anything at all and it was somehow perfect.',
-    date: new Date(Date.now() - 86400000).toISOString(),
-    likes: 1,
-    comments: [{ id: 'c-s2', author: 'ari', text: '❤️' }],
-  },
+/* ════════════════════════════════════════════
+   CONSTANTS
+════════════════════════════════════════════ */
+const MOODS = [
+  { emoji: '🌟', label: 'amazing'  },
+  { emoji: '😊', label: 'good'     },
+  { emoji: '😌', label: 'calm'     },
+  { emoji: '😔', label: 'low'      },
+  { emoji: '🥱', label: 'tired'    },
+  { emoji: '🥰', label: 'in love'  },
 ];
 
-const SEED_MESSAGES = [
-  { id: 'm-s1', author: 'ari',  text: 'hey',                             date: new Date(Date.now() - 2 * 86400000 + 3600000).toISOString() },
-  { id: 'm-s2', author: 'noa',  text: 'hey you',                         date: new Date(Date.now() - 2 * 86400000 + 3700000).toISOString() },
-  { id: 'm-s3', author: 'ari',  text: 'what do you want for dinner',     date: new Date(Date.now() - 2 * 86400000 + 65700000).toISOString() },
-  { id: 'm-s4', author: 'noa',  text: 'you',                             date: new Date(Date.now() - 2 * 86400000 + 65760000).toISOString() },
-  { id: 'm-s5', author: 'ari',  text: 'be serious',                      date: new Date(Date.now() - 2 * 86400000 + 65820000).toISOString() },
-  { id: 'm-s6', author: 'noa',  text: 'pasta? we always have pasta',     date: new Date(Date.now() - 2 * 86400000 + 65940000).toISOString() },
-  { id: 'm-s7', author: 'ari',  text: 'fine, but you stir this time',    date: new Date(Date.now() - 2 * 86400000 + 66000000).toISOString() },
-  { id: 'm-s8', author: 'noa',  text: '...deal ❤️',                     date: new Date(Date.now() - 2 * 86400000 + 66060000).toISOString() },
+const EMOJI_SET = ['❤️', '🔥', '😂', '🥺', '🥹'];
+
+const THINKING = [
+  'thinking of you right now ♡',
+  'hi, just you',
+  'missing you a little bit',
+  'you just crossed my mind and I smiled',
+  'just wanted you to know ♡',
+  'wish you were here',
+  'can\'t stop thinking about you',
+  'hi ♡',
 ];
 
-const SEED_MEMORIES = [
-  { id: 'mm-s1', title: 'Kitchen Dance',      details: 'Pasta almost burned. Turned it into a midnight dance break instead.',  mood: 'playful',  date: new Date(Date.now() - 5 * 86400000).toISOString().slice(0, 10), createdAt: Date.now() - 5 * 86400000 },
-  { id: 'mm-s2', title: 'Balcony Sunrise',    details: 'Two mugs, one blanket. Silence that felt louder than music.',           mood: 'calm',     date: new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10), createdAt: Date.now() - 2 * 86400000 },
-  { id: 'mm-s3', title: 'The Terrible Movie', details: 'Neither of us could remember what was funny. We cried anyway.',          mood: 'silly',    date: new Date(Date.now() - 86400000).toISOString().slice(0, 10),     createdAt: Date.now() - 86400000 },
-];
-
-/* ═══════════════════════════════════════════
+/* ════════════════════════════════════════════
    STATE
-═══════════════════════════════════════════ */
+════════════════════════════════════════════ */
 const state = {
-  currentUser: 'ari',
+  // Auth & profiles
+  authUser:       null,
+  myProfile:      null,
+  partnerProfile: null,
+  coupleDoc:      null,
+
   view: 'feed',
-  posts:          [],
-  messages:       [],
-  memories:       [],
-  likedPosts:     new Set(),
+
+  // Realtime data (Firestore)
+  posts:         [],
+  messages:      [],
+  memories:      [],
+  bucket:        [],
+  songs:         [],
+  checkins:      {},
+  notifications: [],
+
+  // UI
   openComments:   new Set(),
-  reactions:      {},
-  lastChatOpenMs: { ari: 0, noa: 0 },
-  avatars:        {},
-  checkins:       {},   // 'YYYY-MM-DD:personId' → { mood, note }
-  bucket:         [],   // { id, text, done, createdAt }
-  songs:          [],   // { id, author, spotifyUrl, embedId, embedType, note, date }
-  // Spotify SDK runtime state (not persisted)
+  lastChatOpenAt: 0,
+
+  // Spotify SDK
   spDeviceId:    null,
   spPlayer:      null,
   spPlayerState: null,
+
+  // Firestore cleanup
+  _unsubs: [],
+  _memTab: 'memories',
 };
 
-/* ═══════════════════════════════════════════
-   STORAGE
-═══════════════════════════════════════════ */
-function persist(key, data) {
-  try { localStorage.setItem(key, JSON.stringify(data)); } catch { /* quota */ }
-}
-
-function retrieve(key) {
-  try { return JSON.parse(localStorage.getItem(key)); } catch { return null; }
-}
-
-function loadState() {
-  state.currentUser = retrieve(CONFIG.keys.user) || 'ari';
-
-  const posts = retrieve(CONFIG.keys.posts);
-  state.posts = Array.isArray(posts) ? posts : [...SEED_POSTS];
-  if (!Array.isArray(posts)) persist(CONFIG.keys.posts, state.posts);
-
-  const msgs = retrieve(CONFIG.keys.messages);
-  state.messages = Array.isArray(msgs) ? msgs : [...SEED_MESSAGES];
-  if (!Array.isArray(msgs)) persist(CONFIG.keys.messages, state.messages);
-
-  const mems = retrieve(CONFIG.keys.memories);
-  state.memories = Array.isArray(mems) ? mems : [...SEED_MEMORIES];
-  if (!Array.isArray(mems)) persist(CONFIG.keys.memories, state.memories);
-
-  const liked = retrieve(CONFIG.keys.liked);
-  state.likedPosts = new Set(Array.isArray(liked) ? liked : []);
-
-  const rxns = retrieve(CONFIG.keys.reactions);
-  state.reactions = (rxns && typeof rxns === 'object' && !Array.isArray(rxns)) ? rxns : {};
-
-  const chatVisit = retrieve(CONFIG.keys.chatVisit);
-  state.lastChatOpenMs = (chatVisit && typeof chatVisit === 'object') ? { ari: 0, noa: 0, ...chatVisit } : { ari: 0, noa: 0 };
-
-  const avatars = retrieve(CONFIG.keys.avatars);
-  state.avatars = (avatars && typeof avatars === 'object' && !Array.isArray(avatars)) ? avatars : {};
-
-  const checkins = retrieve(CONFIG.keys.checkins);
-  state.checkins = (checkins && typeof checkins === 'object' && !Array.isArray(checkins)) ? checkins : {};
-
-  const bucket = retrieve(CONFIG.keys.bucket);
-  state.bucket = Array.isArray(bucket) ? bucket : [];
-
-  const songs = retrieve(CONFIG.keys.songs);
-  state.songs = Array.isArray(songs) ? songs : [];
-
-  // Merge saved profile edits into CONFIG.people
-  const profiles = retrieve(CONFIG.keys.profiles);
-  if (profiles && typeof profiles === 'object') {
-    for (const [id, data] of Object.entries(profiles)) {
-      if (CONFIG.people[id]) {
-        if (data.name)  CONFIG.people[id].name = data.name;
-        if (data.bio != null) CONFIG.people[id].bio = data.bio;
-      }
-    }
-  }
-}
-
-function saveAll() {
-  persist(CONFIG.keys.posts,      state.posts);
-  persist(CONFIG.keys.messages,   state.messages);
-  persist(CONFIG.keys.memories,   state.memories);
-  persist(CONFIG.keys.user,       state.currentUser);
-  persist(CONFIG.keys.liked,      [...state.likedPosts]);
-  persist(CONFIG.keys.reactions,  state.reactions);
-  persist(CONFIG.keys.chatVisit,  state.lastChatOpenMs);
-  persist(CONFIG.keys.avatars,    state.avatars);
-  persist(CONFIG.keys.checkins,   state.checkins);
-  persist(CONFIG.keys.bucket,     state.bucket);
-  persist(CONFIG.keys.songs,      state.songs);
-}
-
-/* ═══════════════════════════════════════════
+/* ════════════════════════════════════════════
    DOM HELPERS
-═══════════════════════════════════════════ */
-function byId(id) { return document.getElementById(id); }
+════════════════════════════════════════════ */
+const byId = id => document.getElementById(id);
+const me   = ()  => state.myProfile;
+const them = ()  => state.partnerProfile;
+const myId = ()  => state.authUser?.uid ?? null;
 
-function me()   { return CONFIG.people[state.currentUser]; }
-function them() { return CONFIG.people[Object.keys(CONFIG.people).find(id => id !== state.currentUser)]; }
+function coupleId()    { return state.coupleDoc?.id ?? null; }
+function personById(uid) {
+  if (!uid) return null;
+  if (uid === myId()) return state.myProfile;
+  return state.partnerProfile;
+}
+
+const FieldValue = firebase.firestore.FieldValue;
 
 function h(tag, attrs, ...children) {
   const el = document.createElement(tag);
@@ -202,20 +124,20 @@ function h(tag, attrs, ...children) {
   return el;
 }
 
-function mkavatar(personId, size = 'md') {
-  const p   = CONFIG.people[personId];
-  const src = state.avatars[personId];
-  const el  = document.createElement('div');
-  el.className = `avatar avatar-${size} avatar-${personId}`;
-  el.setAttribute('aria-label', p.name);
-  if (src) {
+function mkavatar(uid, size = 'md') {
+  const p  = personById(uid);
+  const el = document.createElement('div');
+  el.className = `avatar avatar-${size}`;
+  el.setAttribute('aria-label', p?.name ?? '?');
+  if (p?.avatarData) {
     const img = document.createElement('img');
-    img.src = src;
-    img.alt = p.name;
+    img.src = p.avatarData;
+    img.alt = p?.name ?? '';
     img.style.cssText = 'width:100%;height:100%;object-fit:cover;border-radius:999px;';
     el.append(img);
   } else {
-    el.textContent = p.initial;
+    el.style.setProperty('--av-bg', p?.color ?? '#888');
+    el.textContent = p?.initial ?? '?';
   }
   return el;
 }
@@ -234,17 +156,15 @@ const SVG = {
 
 function timeAgo(dateStr) {
   const sec = Math.floor((Date.now() - new Date(dateStr)) / 1000);
-  if (sec < 60)   return 'just now';
-  if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
+  if (sec < 60)    return 'just now';
+  if (sec < 3600)  return `${Math.floor(sec / 60)}m ago`;
   if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
-  const d = new Date(dateStr);
-  return d.toLocaleDateString(CONFIG.locale, { day: 'numeric', month: 'short' });
+  return new Date(dateStr).toLocaleDateString(CONFIG.locale, { day: 'numeric', month: 'short' });
 }
 
 function formatDay(dateStr) {
-  const d   = new Date(dateStr);
-  const now = new Date();
-  const diff = Math.floor((now - d) / 86400000);
+  const d    = new Date(dateStr);
+  const diff = Math.floor((Date.now() - d) / 86400000);
   if (diff === 0) return 'Today';
   if (diff === 1) return 'Yesterday';
   return d.toLocaleDateString(CONFIG.locale, { weekday: 'long', day: 'numeric', month: 'long' });
@@ -260,19 +180,105 @@ function moodColor(mood) {
 }
 
 function daysTogether() {
-  return Math.max(1, Math.floor((Date.now() - new Date(CONFIG.startDate)) / 86400000));
+  const start = state.coupleDoc?.startDate;
+  if (!start) return 1;
+  return Math.max(1, Math.floor((Date.now() - new Date(start)) / 86400000));
 }
 
-/* ═══════════════════════════════════════════
+/* ════════════════════════════════════════════
+   FIRESTORE HELPERS
+════════════════════════════════════════════ */
+async function sendNotif(type, preview, targetView = null) {
+  const partner = them();
+  if (!partner) return;
+  try {
+    await db.collection('notifications').add({
+      toUid: partner.id, fromUid: myId(), coupleId: coupleId(),
+      type, preview, targetView, read: false, date: new Date().toISOString(),
+    });
+  } catch {}
+}
+
+/* ════════════════════════════════════════════
+   REALTIME LISTENERS
+════════════════════════════════════════════ */
+function stopListeners() {
+  state._unsubs.forEach(fn => fn());
+  state._unsubs = [];
+}
+
+function startListeners() {
+  stopListeners();
+  const cid = coupleId();
+  if (!cid) return;
+
+  state._unsubs.push(
+    db.collection('posts').where('coupleId','==',cid).orderBy('date','desc')
+      .onSnapshot(snap => {
+        state.posts = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+        if (state.view === 'feed') { const m = byId('mainArea'); if (m) navigateTo('feed'); }
+      }),
+    db.collection('messages').where('coupleId','==',cid).orderBy('date','asc')
+      .onSnapshot(snap => {
+        state.messages = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+        if (state.view === 'chat') {
+          const ml = document.querySelector('.msg-list');
+          if (ml) { renderMessages(ml); requestAnimationFrame(() => { ml.scrollTop = ml.scrollHeight; }); }
+        }
+        updateUnreadBadge();
+      }),
+    db.collection('memories').where('coupleId','==',cid).orderBy('createdAt','desc')
+      .onSnapshot(snap => {
+        state.memories = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+        if (state.view === 'memories' && state._memTab === 'memories') navigateTo('memories');
+      }),
+    db.collection('bucket').where('coupleId','==',cid).orderBy('createdAt','asc')
+      .onSnapshot(snap => {
+        state.bucket = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+        if (state.view === 'memories' && state._memTab === 'bucket') navigateTo('memories');
+      }),
+    db.collection('songs').where('coupleId','==',cid).orderBy('date','desc')
+      .onSnapshot(snap => {
+        state.songs = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+        if (state.view === 'music') navigateTo('music');
+      }),
+    db.collection('checkins').where('coupleId','==',cid)
+      .onSnapshot(snap => {
+        state.checkins = {};
+        snap.docs.forEach(d => { const data = d.data(); state.checkins[`${data.date}:${data.author}`] = data; });
+        if (state.view === 'feed') {
+          const widget = document.querySelector('.checkin-card');
+          if (widget) widget.replaceWith(buildCheckinWidget());
+        }
+      }),
+    db.collection('notifications').where('toUid','==',myId()).orderBy('date','desc').limit(50)
+      .onSnapshot(snap => {
+        state.notifications = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+        updateNotifBadge();
+        if (byId('notifPanel') && !byId('notifPanel').hidden) renderNotifPanel();
+      }),
+  );
+
+  if (state.partnerProfile?.id) {
+    state._unsubs.push(
+      db.collection('users').doc(state.partnerProfile.id).onSnapshot(snap => {
+        if (snap.exists) { state.partnerProfile = { id: snap.id, ...snap.data() }; renderSidebar(); }
+      })
+    );
+  }
+}
+
+/* ════════════════════════════════════════════
    NAVIGATION
-═══════════════════════════════════════════ */
+════════════════════════════════════════════ */
 function navigateTo(view) {
   state.view = view;
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view));
 
   if (view === 'chat') {
-    state.lastChatOpenMs[state.currentUser] = Date.now();
-    persist(CONFIG.keys.chatVisit, state.lastChatOpenMs);
+    state.lastChatOpenAt = Date.now();
+    updateUnreadBadge();
+    if (myId()) db.collection('users').doc(myId()).update({ lastChatOpenAt: Date.now() }).catch(() => {});
   }
 
   const main = byId('mainArea');
@@ -284,51 +290,17 @@ function navigateTo(view) {
   updateUnreadBadge();
 }
 
-/* ═══════════════════════════════════════════
-   SIDEBAR
-═══════════════════════════════════════════ */
-function renderSidebar() {
-  const footer = byId('sidebarFooter');
-  footer.innerHTML = '';
-  const person = me();
-  const other  = them();
-
-  const card = h('button', {
-    class: 'sidebar-user-card',
-    onClick: switchUser,
-    title: `Switch to ${other.name}`,
-    'aria-label': `Currently posting as ${person.name}. Click to switch to ${other.name}.`,
-  },
-    mkavatar(person.id, 'sm'),
-    h('div', {},
-      h('span', { class: 'sidebar-user-name' }, person.name),
-      h('span', { class: 'sidebar-user-hint' }, 'tap to switch'),
-    ),
-  );
-
-  footer.append(card);
-}
-
-function switchUser() {
-  const ids = Object.keys(CONFIG.people);
-  state.currentUser = ids.find(id => id !== state.currentUser);
-  persist(CONFIG.keys.user, state.currentUser);
-  renderSidebar();
-  navigateTo(state.view);
-}
-
+/* ════════════════════════════════════════════
+   BADGES
+════════════════════════════════════════════ */
 function updateUnreadBadge() {
-  const otherId = Object.keys(CONFIG.people).find(id => id !== state.currentUser);
-  const since   = state.lastChatOpenMs[state.currentUser] || 0;
-  const count   = state.messages.filter(m => m.author === otherId && new Date(m.date).getTime() > since).length;
+  const partnerId = them()?.id;
+  const since     = state.lastChatOpenAt || 0;
+  const count     = state.messages.filter(m => m.author === partnerId && new Date(m.date).getTime() > since).length;
   document.querySelectorAll('[data-view="chat"]').forEach(btn => {
     let badge = btn.querySelector('.nav-badge');
     if (count > 0) {
-      if (!badge) {
-        badge = document.createElement('span');
-        badge.className = 'nav-badge';
-        btn.append(badge);
-      }
+      if (!badge) { badge = document.createElement('span'); badge.className = 'nav-badge'; btn.append(badge); }
       badge.textContent = count > 9 ? '9+' : String(count);
     } else {
       badge?.remove();
@@ -336,40 +308,351 @@ function updateUnreadBadge() {
   });
 }
 
-/* ═══════════════════════════════════════════
-   CHECK-IN WIDGET
-═══════════════════════════════════════════ */
-const MOODS = [
-  { emoji: '🌟', label: 'amazing'  },
-  { emoji: '😊', label: 'good'     },
-  { emoji: '😌', label: 'calm'     },
-  { emoji: '😔', label: 'low'      },
-  { emoji: '🥱', label: 'tired'    },
-  { emoji: '🥰', label: 'in love'  },
-];
-
-function todayKey(personId) {
-  return `${new Date().toISOString().slice(0, 10)}:${personId}`;
+function updateNotifBadge() {
+  const count = state.notifications.filter(n => !n.read).length;
+  const el = byId('notifBadge');
+  if (el) {
+    el.hidden = count === 0;
+    if (count > 0) el.textContent = count > 9 ? '9+' : String(count);
+  }
+  // Also update sidebar bell
+  const sidebarBell = document.querySelector('.sidebar-notif-btn .nav-badge');
+  if (sidebarBell) sidebarBell.textContent = count > 9 ? '9+' : String(count);
+  const sidebarBellBtn = document.querySelector('.sidebar-notif-btn');
+  if (sidebarBellBtn) {
+    let badge = sidebarBellBtn.querySelector('.nav-badge');
+    if (count > 0) {
+      if (!badge) { badge = document.createElement('span'); badge.className = 'nav-badge'; sidebarBellBtn.append(badge); }
+      badge.textContent = count > 9 ? '9+' : String(count);
+    } else { badge?.remove(); }
+  }
 }
 
+/* ════════════════════════════════════════════
+   AUTH FLOW
+════════════════════════════════════════════ */
+function showAuthOverlay(content) {
+  const panel = byId('authPanel');
+  panel.innerHTML = '';
+  panel.append(content);
+  byId('authOverlay').hidden = false;
+}
+function hideAuthOverlay() { byId('authOverlay').hidden = true; }
+
+function showTerms() {
+  const card = h('div', { class: 'terms-card' },
+    h('div', { class: 'terms-logo' }, '♡'),
+    h('h1', { class: 'terms-title' }, 'ours.'),
+    h('p', { class: 'terms-sub' }, 'Terms & Conditions of Love'),
+    h('ul', { class: 'terms-list' },
+      h('li', { class: 'terms-item' }, h('span', { class: 'terms-item-icon' }, '🎵'), h('span', {}, h('strong', {}, '§1 Songs. '), 'All songs discovered after midnight shall be shared immediately, regardless of the hour.')),
+      h('li', { class: 'terms-item' }, h('span', { class: 'terms-item-icon' }, '🍝'), h('span', {}, h('strong', {}, '§2 Pasta. '), 'No person shall stir pasta for more than two consecutive evenings without fair rotation.')),
+      h('li', { class: 'terms-item' }, h('span', { class: 'terms-item-icon' }, '🫶'), h('span', {}, h('strong', {}, '§3 Thinking of You. '), 'A thinking-of-you message cannot be left unread for longer than one reasonable nap.')),
+      h('li', { class: 'terms-item' }, h('span', { class: 'terms-item-icon' }, '📸'), h('span', {}, h('strong', {}, '§4 Photos. '), 'Any photo where the other person looks objectively wonderful must be shared before sunset.')),
+      h('li', { class: 'terms-item' }, h('span', { class: 'terms-item-icon' }, '🌅'), h('span', {}, h('strong', {}, '§5 Mornings. '), '"Good morning" is a legally binding promise that the day will be at least marginally better together.')),
+      h('li', { class: 'terms-item' }, h('span', { class: 'terms-item-icon' }, '🎬'), h('span', {}, h('strong', {}, '§6 Bad Movies. '), 'All terrible movies watched together shall be remembered fondly, regardless of quality.')),
+      h('li', { class: 'terms-item' }, h('span', { class: 'terms-item-icon' }, '☕'), h('span', {}, h('strong', {}, '§7 Bad Days. '), 'On bad days, hot beverages shall be offered before opinions.')),
+      h('li', { class: 'terms-item' }, h('span', { class: 'terms-item-icon' }, '🔒'), h('span', {}, h('strong', {}, '§8 Privacy. '), 'What is shared here, stays here. This space belongs to you two alone.')),
+      h('li', { class: 'terms-item' }, h('span', { class: 'terms-item-icon' }, '✍️'), h('span', {}, h('strong', {}, '§9 Amendments. '), 'These terms may be amended at any time by mutual giggling.')),
+      h('li', { class: 'terms-item' }, h('span', { class: 'terms-item-icon' }, '∞'), h('span', {}, h('strong', {}, '§10 Duration. '), 'This agreement is effective for: forever.')),
+    ),
+    h('button', { class: 'terms-accept', onClick: () => {
+      localStorage.setItem('ours-terms-v1', '1');
+      showAuth();
+    }}, 'I Accept ♡'),
+  );
+  showAuthOverlay(card);
+}
+
+function showAuth(mode = 'login') {
+  let currentMode = mode;
+  function render() {
+    const isReg = currentMode === 'register';
+    const errorEl = h('div', { class: 'auth-error', style: { display: 'none' } });
+    const emailIn = h('input', { class: 'auth-input', type: 'email', placeholder: 'your@email.com', autocomplete: 'email' });
+    const passIn  = h('input', { class: 'auth-input', type: 'password', placeholder: '••••••••', autocomplete: isReg ? 'new-password' : 'current-password' });
+    const nameIn  = isReg ? h('input', { class: 'auth-input', type: 'text', placeholder: 'Your name', maxlength: '24' }) : null;
+
+    let selectedColor = CONFIG.colors[0].hex;
+    const colorRow = isReg ? h('div', { class: 'auth-color-row' }) : null;
+    if (isReg && colorRow) {
+      CONFIG.colors.forEach(c => {
+        const sw = h('button', { class: `auth-color-swatch${selectedColor === c.hex ? ' selected' : ''}`, style: { background: c.hex }, onClick: () => {
+          selectedColor = c.hex;
+          colorRow.querySelectorAll('.auth-color-swatch').forEach(s => s.classList.remove('selected'));
+          sw.classList.add('selected');
+        }});
+        colorRow.append(sw);
+      });
+    }
+
+    const btn = h('button', { class: 'auth-submit', onClick: submit }, isReg ? 'Create account' : 'Sign in');
+
+    async function submit() {
+      const email = emailIn.value.trim();
+      const pass  = passIn.value;
+      if (!email || !pass) { showErr('Please fill in all fields.'); return; }
+      if (isReg && !nameIn?.value.trim()) { showErr('Please enter your name.'); return; }
+      btn.disabled = true;
+      btn.textContent = isReg ? 'Creating…' : 'Signing in…';
+      errorEl.style.display = 'none';
+      try {
+        if (isReg) {
+          const cred = await auth.createUserWithEmailAndPassword(email, pass);
+          const name = nameIn.value.trim();
+          await db.collection('users').doc(cred.user.uid).set({
+            name, bio: '', color: selectedColor, initial: name[0].toUpperCase(),
+            inviteCode: genCode(), partnerId: null, coupleId: null,
+            avatarData: null, lastChatOpenAt: 0, createdAt: Date.now(),
+          });
+        } else {
+          await auth.signInWithEmailAndPassword(email, pass);
+        }
+      } catch (err) {
+        showErr(authErrMsg(err.code));
+      } finally {
+        btn.disabled = false;
+        btn.textContent = isReg ? 'Create account' : 'Sign in';
+      }
+    }
+    function showErr(msg) { errorEl.textContent = msg; errorEl.style.display = ''; }
+    [emailIn, passIn, nameIn].filter(Boolean).forEach(el => el.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); }));
+
+    const card = h('div', { class: 'auth-card' },
+      h('span', { class: 'auth-brand' }, 'ours.'),
+      h('p', { class: 'auth-subtitle' }, 'a private space for two'),
+      h('div', { class: 'auth-tab-row' },
+        h('button', { class: `auth-tab${!isReg ? ' active' : ''}`, onClick: () => { currentMode = 'login'; render(); } }, 'Sign in'),
+        h('button', { class: `auth-tab${isReg ? ' active' : ''}`, onClick: () => { currentMode = 'register'; render(); } }, 'Create account'),
+      ),
+      errorEl,
+      isReg ? h('div', { class: 'auth-field' }, h('label', { class: 'auth-label' }, 'Your name'), nameIn) : null,
+      h('div', { class: 'auth-field' }, h('label', { class: 'auth-label' }, 'Email'), emailIn),
+      h('div', { class: 'auth-field' }, h('label', { class: 'auth-label' }, 'Password'), passIn),
+      isReg ? h('div', { class: 'auth-field' }, h('label', { class: 'auth-label' }, 'Your colour'), colorRow) : null,
+      btn,
+    );
+    showAuthOverlay(card);
+  }
+  render();
+}
+
+function genCode() {
+  const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  return Array.from({ length: 6 }, () => c[Math.floor(Math.random() * c.length)]).join('');
+}
+function authErrMsg(code) {
+  const m = {
+    'auth/wrong-password': 'Incorrect password.', 'auth/user-not-found': 'No account with that email.',
+    'auth/invalid-email': 'Enter a valid email.', 'auth/email-already-in-use': 'That email is already registered.',
+    'auth/weak-password': 'Password must be at least 6 characters.', 'auth/too-many-requests': 'Too many attempts. Try again later.',
+    'auth/invalid-credential': 'Email or password incorrect.', 'auth/network-request-failed': 'Network error. Check your connection.',
+  };
+  return m[code] || 'Something went wrong. Please try again.';
+}
+
+async function showPairing(userDoc) {
+  const code     = userDoc.inviteCode;
+  const codeIn   = h('input', { class: 'auth-input', type: 'text', maxlength: '6', placeholder: 'Enter their code',
+    style: { textAlign: 'center', letterSpacing: '0.2em', textTransform: 'uppercase', fontSize: '1.2rem' } });
+  const connectBtn = h('button', { class: 'auth-submit', style: { marginTop: '0' }, onClick: connect }, 'Connect ♡');
+  const errorEl  = h('div', { class: 'auth-error', style: { display: 'none' } });
+
+  async function connect() {
+    const entered = codeIn.value.trim().toUpperCase();
+    if (entered.length < 4) { showErr('Enter your partner\'s invite code.'); return; }
+    connectBtn.disabled = true; connectBtn.textContent = 'Connecting…'; errorEl.style.display = 'none';
+    try {
+      const snap = await db.collection('users').where('inviteCode','==',entered).get();
+      if (snap.empty) throw new Error('not-found');
+      const partnerDoc = snap.docs[0];
+      if (partnerDoc.id === myId()) throw new Error('own');
+      if (partnerDoc.data().partnerId) throw new Error('taken');
+      const coupleRef = await db.collection('couples').add({
+        userA: myId(), userB: partnerDoc.id,
+        startDate: new Date().toISOString().slice(0,10), createdAt: Date.now(),
+      });
+      const batch = db.batch();
+      batch.update(db.collection('users').doc(myId()),         { partnerId: partnerDoc.id, coupleId: coupleRef.id });
+      batch.update(db.collection('users').doc(partnerDoc.id),  { partnerId: myId(),        coupleId: coupleRef.id });
+      await batch.commit();
+    } catch (err) {
+      connectBtn.disabled = false; connectBtn.textContent = 'Connect ♡';
+      const msgs = { 'not-found': "That code doesn't exist.", 'own': "That's your own code 😊 Share it with your partner.", 'taken': 'That person is already paired.' };
+      showErr(msgs[err.message] || 'Something went wrong. Try again.');
+    }
+  }
+  function showErr(msg) { errorEl.textContent = msg; errorEl.style.display = ''; }
+
+  let copyLabel = 'Copy code';
+  const copyBtn = h('button', { class: 'pair-code-copy', onClick: () => {
+    navigator.clipboard?.writeText(code).then(() => { copyBtn.textContent = 'Copied!'; setTimeout(() => { copyBtn.textContent = copyLabel; }, 2000); }).catch(()=>{});
+  }}, copyLabel);
+
+  showAuthOverlay(h('div', { class: 'pair-card' },
+    h('h2', { class: 'pair-title' }, 'find your person'),
+    h('p', { class: 'pair-sub' }, 'Share your invite code, or enter your partner\'s.'),
+    h('div', { class: 'pair-code-box' },
+      h('div', { class: 'pair-code-label' }, 'your invite code'),
+      h('div', { class: 'pair-code-value' }, code),
+      copyBtn,
+    ),
+    h('p', { class: 'pair-divider' }, 'or enter theirs'),
+    errorEl,
+    codeIn,
+    connectBtn,
+    h('div', { class: 'pair-logout' }, h('button', { onClick: () => auth.signOut() }, 'Sign out')),
+  ));
+
+  codeIn.addEventListener('keydown', e => { if (e.key === 'Enter') connect(); });
+  codeIn.addEventListener('input',   () => { codeIn.value = codeIn.value.toUpperCase(); });
+}
+
+async function startApp() {
+  hideAuthOverlay();
+  byId('appLayout').hidden = false;
+  renderSidebar();
+  if (myId() !== 'dev-user') { startListeners(); requestPushPermission(); }
+
+  const urlParams = new URLSearchParams(location.search);
+  if (urlParams.get('state') === 'sp') {
+    history.replaceState({}, '', location.pathname);
+    if (urlParams.get('error')) {
+      localStorage.setItem('sp-auth-error', urlParams.get('error'));
+    } else if (urlParams.get('code')) {
+      const ok = await spExchangeCode(urlParams.get('code')).catch(() => false);
+      if (!ok) localStorage.setItem('sp-auth-error', 'token_exchange_failed');
+    }
+    navigateTo('music');
+  } else {
+    navigateTo('feed');
+  }
+
+  if (spIsAuthed()) spInitPlayer().catch(() => {});
+}
+
+async function requestPushPermission() {
+  if (!messaging || !VAPID_KEY || VAPID_KEY === 'YOUR_VAPID_KEY') return;
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') return;
+    const token = await messaging.getToken({ vapidKey: VAPID_KEY });
+    if (token && myId()) db.collection('users').doc(myId()).update({ fcmToken: token }).catch(() => {});
+  } catch {}
+}
+
+/* ════════════════════════════════════════════
+   NOTIFICATION PANEL
+════════════════════════════════════════════ */
+function openNotifPanel() {
+  renderNotifPanel();
+  const panel    = byId('notifPanel');
+  const backdrop = byId('notifBackdrop');
+  panel.hidden = false; backdrop.hidden = false;
+  requestAnimationFrame(() => { panel.classList.add('open'); backdrop.classList.add('visible'); });
+}
+
+function closeNotifPanel() {
+  const panel = byId('notifPanel'), backdrop = byId('notifBackdrop');
+  panel.classList.remove('open'); backdrop.classList.remove('visible');
+  setTimeout(() => { panel.hidden = true; backdrop.hidden = true; }, 320);
+}
+
+function renderNotifPanel() {
+  const list = byId('notifList');
+  if (!list) return;
+  list.innerHTML = '';
+  if (!state.notifications.length) {
+    list.append(h('div', { class: 'notif-empty' }, '✉️ Nothing yet —\nyour partner hasn\'t done anything interesting.'));
+    return;
+  }
+  const icons = { message: '💬', post: '📸', reaction: '❤️', thinking: '🫶', memory: '🌿', song: '🎵' };
+  state.notifications.forEach(n => {
+    const from  = personById(n.fromUid);
+    const names = { message: `${from?.name ?? 'Someone'} sent a message`, post: `${from?.name ?? 'Someone'} shared a moment`,
+      reaction: `${from?.name ?? 'Someone'} reacted`, thinking: `${from?.name ?? 'Someone'} is thinking of you`,
+      memory: `${from?.name ?? 'Someone'} added a memory`, song: `${from?.name ?? 'Someone'} shared a song` };
+    const item = h('div', { class: `notif-item${n.read ? '' : ' unread'}` },
+      h('div', { class: 'notif-item-icon' }, icons[n.type] ?? '📩'),
+      h('div', { class: 'notif-item-body' },
+        h('div', { class: 'notif-item-text' }, names[n.type] ?? 'New activity'),
+        n.preview ? h('div', { class: 'notif-item-preview' }, n.preview) : null,
+      ),
+      h('div', { class: 'notif-item-time' }, timeAgo(n.date)),
+      !n.read ? h('div', { class: 'notif-dot' }) : null,
+    );
+    item.addEventListener('click', () => {
+      db.collection('notifications').doc(n.id).update({ read: true }).catch(() => {});
+      closeNotifPanel();
+      if (n.targetView) navigateTo(n.targetView);
+    });
+    list.append(item);
+  });
+}
+
+function markAllNotifsRead() {
+  const batch = db.batch();
+  state.notifications.filter(n => !n.read).forEach(n =>
+    batch.update(db.collection('notifications').doc(n.id), { read: true }));
+  batch.commit().catch(() => {});
+}
+
+/* ════════════════════════════════════════════
+   SIDEBAR
+════════════════════════════════════════════ */
+function renderSidebar() {
+  const footer = byId('sidebarFooter');
+  if (!footer) return;
+  footer.innerHTML = '';
+  const person = me();
+  if (!person) return;
+  const count = state.notifications.filter(n => !n.read).length;
+  const bellBtn = h('button', { class: 'sidebar-notif-btn', title: 'Notifications', onClick: openNotifPanel },
+    h('span', {}, '🔔'),
+    h('span', {}, 'Notifications'),
+    count > 0 ? h('span', { class: 'nav-badge' }, count > 9 ? '9+' : String(count)) : null,
+  );
+  const profileBtn = h('button', { class: 'sidebar-user-card', onClick: () => navigateTo('profile') },
+    mkavatar(myId(), 'sm'),
+    h('div', {},
+      h('span', { class: 'sidebar-user-name' }, person.name),
+      h('span', { class: 'sidebar-user-hint' }, them() ? `with ${them().name}` : 'waiting for partner'),
+    ),
+  );
+  footer.append(bellBtn, profileBtn);
+}
+
+function updateUnreadBadge() {
+  const partnerId = them()?.id;
+  const since     = state.lastChatOpenAt || 0;
+  const count     = state.messages.filter(m => m.author === partnerId && new Date(m.date).getTime() > since).length;
+  document.querySelectorAll('[data-view="chat"]').forEach(btn => {
+    let badge = btn.querySelector('.nav-badge');
+    if (count > 0) {
+      if (!badge) { badge = document.createElement('span'); badge.className = 'nav-badge'; btn.append(badge); }
+      badge.textContent = count > 9 ? '9+' : String(count);
+    } else { badge?.remove(); }
+  });
+}
+
+/* ════════════════════════════════════════════
+   CHECK-IN WIDGET
+════════════════════════════════════════════ */
+function todayKey(uid) { return `${new Date().toISOString().slice(0, 10)}:${uid}`; }
+
 function buildCheckinWidget() {
-  const meId    = state.currentUser;
-  const themId  = Object.keys(CONFIG.people).find(id => id !== meId);
-  const meKey   = todayKey(meId);
-  const themKey = todayKey(themId);
-  const myCI    = state.checkins[meKey];
-  const theirCI = state.checkins[themKey];
+  const meUid   = myId();
+  const themUid = them()?.id;
+  const myCI    = state.checkins[todayKey(meUid)];
+  const theirCI = themUid ? state.checkins[todayKey(themUid)] : null;
+  const wrap    = h('div', { class: 'checkin-card' });
 
-  const wrap = h('div', { class: 'checkin-card' });
-
-  // Their check-in banner
   if (theirCI) {
     const mood = MOODS.find(m => m.label === theirCI.mood) || MOODS[0];
-    const them = CONFIG.people[themId];
     wrap.append(h('div', { class: 'ci-them-row' },
-      mkavatar(themId, 'sm'),
+      mkavatar(themUid, 'sm'),
       h('div', { class: 'ci-them-info' },
-        h('span', { class: 'ci-them-name' }, them.name),
+        h('span', { class: 'ci-them-name' }, them()?.name ?? ''),
         h('span', { class: 'ci-them-mood' }, `feeling ${mood.emoji} ${mood.label}`),
         theirCI.note ? h('span', { class: 'ci-them-note' }, `"${theirCI.note}"`) : null,
       ),
@@ -377,7 +660,6 @@ function buildCheckinWidget() {
   }
 
   if (myCI) {
-    // Already checked in
     const mood = MOODS.find(m => m.label === myCI.mood) || MOODS[0];
     wrap.append(h('div', { class: 'ci-me-done' },
       h('span', { class: 'ci-me-emoji' }, mood.emoji),
@@ -385,90 +667,78 @@ function buildCheckinWidget() {
         h('span', { class: 'ci-me-label' }, `you're feeling ${mood.label}`),
         myCI.note ? h('span', { class: 'ci-me-note' }, `"${myCI.note}"`) : null,
       ),
-      h('button', { class: 'ci-change', onClick: () => { delete state.checkins[meKey]; saveAll(); navigateTo('feed'); } }, 'change'),
+      h('button', { class: 'ci-change', onClick: () => {
+        const today = new Date().toISOString().slice(0,10);
+        db.collection('checkins').where('coupleId','==',coupleId()).where('author','==',meUid).where('date','==',today)
+          .get().then(snap => snap.forEach(d => d.ref.delete())).catch(() => {});
+      }}, 'change'),
     ));
   } else {
-    // Picker
     let selectedMood = null;
     const noteWrap  = h('div', { class: 'ci-note-wrap' });
     const noteIn    = h('input', { class: 'ci-note-in', type: 'text', maxlength: '80', placeholder: 'add a note… (optional)' });
     noteWrap.append(noteIn);
-
     const submitBtn = h('button', { class: 'ci-submit', onClick: submit }, 'how are you feeling today?');
-
-    const moodPicker = h('div', { class: 'checkin-moods' });
+    const picker    = h('div', { class: 'checkin-moods' });
     MOODS.forEach(m => {
-      const btn = h('button', {
-        class: 'checkin-mood-btn',
-        onClick: () => {
-          moodPicker.querySelectorAll('.checkin-mood-btn').forEach(b => b.classList.remove('selected'));
-          btn.classList.add('selected');
-          selectedMood = m.label;
-          noteWrap.classList.add('visible');
-          submitBtn.textContent = `check in as ${m.emoji} ${m.label}`;
-          submitBtn.classList.add('ready');
-          noteIn.focus();
-        },
-      }, h('span', { class: 'ci-emoji' }, m.emoji), h('span', { class: 'ci-label' }, m.label));
-      moodPicker.append(btn);
+      const btn = h('button', { class: 'checkin-mood-btn', onClick: () => {
+        picker.querySelectorAll('.checkin-mood-btn').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        selectedMood = m.label;
+        noteWrap.classList.add('visible');
+        submitBtn.textContent = `check in as ${m.emoji} ${m.label}`;
+        submitBtn.classList.add('ready');
+        noteIn.focus();
+      }}, h('span', { class: 'ci-emoji' }, m.emoji), h('span', { class: 'ci-label' }, m.label));
+      picker.append(btn);
     });
-
     function submit() {
       if (!selectedMood) return;
-      state.checkins[meKey] = { mood: selectedMood, note: noteIn.value.trim() };
-      saveAll();
-      navigateTo('feed');
+      db.collection('checkins').add({
+        coupleId: coupleId(), author: meUid, mood: selectedMood,
+        note: noteIn.value.trim(), date: new Date().toISOString().slice(0,10),
+      }).catch(() => {});
     }
     noteIn.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
-
-    wrap.append(moodPicker, noteWrap, submitBtn);
+    wrap.append(picker, noteWrap, submitBtn);
   }
-
   return wrap;
 }
 
-/* ═══════════════════════════════════════════
+/* ════════════════════════════════════════════
    VIEW: FEED
-═══════════════════════════════════════════ */
+════════════════════════════════════════════ */
 function renderFeed(container) {
   const wrap = h('div', { class: 'view-wrap' });
-
-  wrap.append(h('div', { class: 'feed-header' },
-    h('h1', { class: 'view-title' }, 'feed'),
-  ));
-
+  wrap.append(h('div', { class: 'feed-header' }, h('h1', { class: 'view-title' }, 'feed')));
   wrap.append(buildCheckinWidget());
   wrap.append(buildComposer());
 
-  const sorted = [...state.posts].sort((a, b) => new Date(b.date) - new Date(a.date));
-
-  if (!sorted.length) {
+  if (!state.posts.length) {
     wrap.append(h('div', { class: 'empty-state' },
       h('div', { class: 'empty-icon' }, '📷'),
       h('h3', {}, 'Nothing here yet'),
       h('p',  {}, 'Add your first moment above.'),
     ));
   } else {
-    sorted.forEach((post, i) => {
+    state.posts.forEach((post, i) => {
       const card = buildPostCard(post);
       card.style.animationDelay = `${i * 45}ms`;
       wrap.append(card);
     });
   }
-
   container.append(wrap);
 }
 
 function buildComposer() {
-  const body = h('div', { class: 'composer-body' });
-
-  const imgInput = h('input', { class: 'field-input', type: 'url', placeholder: 'Image URL (optional)', id: 'compImg' });
-  const txtInput = h('textarea', { class: 'field-input', rows: '3', maxlength: '500', placeholder: 'What happened today?', id: 'compTxt' });
-  const postingAs = h('p', { class: 'composer-posting-as' }, `Posting as ${me().name}`);
+  const body     = h('div', { class: 'composer-body' });
+  const imgInput = h('input', { class: 'field-input', type: 'url', placeholder: 'Image URL (optional)' });
+  const txtInput = h('textarea', { class: 'field-input', rows: '3', maxlength: '500', placeholder: 'What happened today?' });
+  const postingAs = h('p', { class: 'composer-posting-as' }, `Posting as ${me()?.name ?? ''}`);
 
   function open() {
     body.classList.add('open');
-    postingAs.textContent = `Posting as ${me().name}`;
+    postingAs.textContent = `Posting as ${me()?.name ?? ''}`;
     txtInput.focus();
   }
 
@@ -481,10 +751,12 @@ function buildComposer() {
   function submit() {
     const caption = txtInput.value.trim();
     if (!caption) { txtInput.focus(); return; }
-    state.posts.unshift({ id: crypto.randomUUID(), author: state.currentUser, imageUrl: imgInput.value.trim(), caption, date: new Date().toISOString(), likes: 0, comments: [] });
-    saveAll();
+    db.collection('posts').add({
+      coupleId: coupleId(), author: myId(),
+      imageUrl: imgInput.value.trim(), caption,
+      date: new Date().toISOString(), likes: [], reactions: {}, comments: [],
+    }).then(() => sendNotif('post', caption.slice(0, 60), 'feed')).catch(() => {});
     close();
-    navigateTo('feed');
   }
 
   body.append(
@@ -503,17 +775,18 @@ function buildComposer() {
     onClick: open, onKeydown: e => { if (e.key === 'Enter') open(); } }, 'Share a moment…');
 
   return h('div', { class: 'composer-card' },
-    h('div', { class: 'composer-trigger' }, mkavatar(state.currentUser, 'sm'), placeholder),
+    h('div', { class: 'composer-trigger' }, mkavatar(myId(), 'sm'), placeholder),
     body,
   );
 }
 
 function buildPostCard(post) {
-  const person  = CONFIG.people[post.author];
-  const isLiked = state.likedPosts.has(post.id);
-  const isOwn   = post.author === state.currentUser;
+  const person = personById(post.author);
+  const isOwn  = post.author === myId();
+  const likes  = Array.isArray(post.likes) ? post.likes : [];
+  const isLiked = likes.includes(myId());
 
-  const likeCountNode = document.createTextNode(post.likes > 0 ? String(post.likes) : '');
+  const likeCountNode = document.createTextNode(likes.length > 0 ? String(likes.length) : '');
   const heartSvg = mksvg(SVG.heart, '');
 
   const likeBtn = h('button', {
@@ -525,7 +798,7 @@ function buildPostCard(post) {
   const commentsSection = buildCommentsSection(post);
   if (state.openComments.has(post.id)) commentsSection.classList.add('open');
 
-  const commentCount = post.comments.length;
+  const commentCount = (post.comments ?? []).length;
   const commentToggle = h('button', {
     class: 'comment-toggle',
     onClick: () => {
@@ -573,30 +846,29 @@ function buildCommentsSection(post) {
 
   function render() {
     section.innerHTML = '';
-
-    post.comments.forEach(c => {
+    (post.comments ?? []).forEach(c => {
       section.append(h('div', { class: 'comment-item' },
         mkavatar(c.author, 'sm'),
         h('div', { class: 'comment-bubble' },
-          h('div', { class: 'comment-author' }, CONFIG.people[c.author].name),
+          h('div', { class: 'comment-author' }, personById(c.author)?.name ?? 'Someone'),
           h('div', { class: 'comment-text'   }, c.text),
         ),
       ));
     });
-
     const inp = h('input', { class: 'comment-input', type: 'text', maxlength: '200', placeholder: 'Write a comment…' });
     const btn = h('button', { class: 'comment-send', onClick: send }, 'Send');
     inp.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
-
     function send() {
       const text = inp.value.trim();
       if (!text) return;
-      post.comments.push({ id: crypto.randomUUID(), author: state.currentUser, text });
-      saveAll();
+      const comment = { id: crypto.randomUUID(), author: myId(), text };
+      const newComments = [...(post.comments ?? []), comment];
+      db.collection('posts').doc(post.id).update({ comments: newComments }).catch(() => {});
+      post.comments = newComments;
+      if (post.author !== myId()) sendNotif('message', text.slice(0, 60), 'feed');
       render();
     }
-
-    section.append(h('div', { class: 'comment-form' }, mkavatar(state.currentUser, 'sm'), inp, btn));
+    section.append(h('div', { class: 'comment-form' }, mkavatar(myId(), 'sm'), inp, btn));
   }
 
   render();
@@ -604,38 +876,34 @@ function buildCommentsSection(post) {
 }
 
 function handleLike(postId, btn, countNode) {
-  const post = state.posts.find(p => p.id === postId);
+  const post  = state.posts.find(p => p.id === postId);
   if (!post) return;
-
-  if (state.likedPosts.has(postId)) {
-    state.likedPosts.delete(postId);
-    post.likes = Math.max(0, post.likes - 1);
+  const likes = Array.isArray(post.likes) ? post.likes : [];
+  const liked = likes.includes(myId());
+  const update = liked
+    ? { likes: FieldValue.arrayRemove(myId()) }
+    : { likes: FieldValue.arrayUnion(myId()) };
+  db.collection('posts').doc(postId).update(update).catch(() => {});
+  // Optimistic UI
+  if (liked) {
     btn.classList.remove('liked');
+    countNode.textContent = likes.length - 1 > 0 ? String(likes.length - 1) : '';
   } else {
-    state.likedPosts.add(postId);
-    post.likes += 1;
     btn.classList.add('liked', 'pop');
     btn.addEventListener('animationend', () => btn.classList.remove('pop'), { once: true });
+    countNode.textContent = String(likes.length + 1);
+    if (post.author !== myId()) sendNotif('reaction', null, 'feed');
   }
-
-  countNode.textContent = post.likes > 0 ? String(post.likes) : '';
-  saveAll();
 }
 
 function deletePost(postId) {
   if (!confirm('Delete this post?')) return;
-  state.posts = state.posts.filter(p => p.id !== postId);
-  state.likedPosts.delete(postId);
-  state.openComments.delete(postId);
-  saveAll();
-  navigateTo('feed');
+  db.collection('posts').doc(postId).delete().catch(() => {});
 }
 
-/* ═══════════════════════════════════════════
+/* ════════════════════════════════════════════
    REACTIONS
-═══════════════════════════════════════════ */
-const EMOJI_SET = ['❤️', '🔥', '😂', '🥺', '🥹'];
-
+════════════════════════════════════════════ */
 function buildReactionsRow(post) {
   const row = h('div', { class: 'reactions-row' });
   renderReactionBtns(row, post);
@@ -644,35 +912,36 @@ function buildReactionsRow(post) {
 
 function renderReactionBtns(row, post) {
   row.innerHTML = '';
-  const postRxns = state.reactions[post.id] || {};
+  const rxns = post.reactions || {};
   EMOJI_SET.forEach(emoji => {
-    const users   = postRxns[emoji] || [];
-    const reacted = users.includes(state.currentUser);
-    const count   = users.length;
+    const uids    = Object.entries(rxns).filter(([, e]) => e === emoji).map(([uid]) => uid);
+    const reacted = uids.includes(myId());
+    const count   = uids.length;
     row.append(h('button', {
       class: `reaction-btn${reacted ? ' reacted' : ''}`,
-      onClick: () => { toggleReaction(post.id, emoji); renderReactionBtns(row, post); },
+      onClick: () => toggleReaction(post.id, emoji),
       'aria-label': `${emoji}${count ? ' ' + count : ''}`,
-    },
-      emoji,
-      count > 0 ? h('span', { class: 'reaction-count' }, String(count)) : null,
-    ));
+    }, emoji, count > 0 ? h('span', { class: 'reaction-count' }, String(count)) : null));
   });
 }
 
 function toggleReaction(postId, emoji) {
-  if (!state.reactions[postId]) state.reactions[postId] = {};
-  const users = [...(state.reactions[postId][emoji] || [])];
-  const idx   = users.indexOf(state.currentUser);
-  if (idx >= 0) users.splice(idx, 1); else users.push(state.currentUser);
-  if (users.length) state.reactions[postId][emoji] = users;
-  else delete state.reactions[postId][emoji];
-  saveAll();
+  const post  = state.posts.find(p => p.id === postId);
+  if (!post) return;
+  const rxns   = { ...(post.reactions || {}) };
+  const reacted = rxns[myId()] === emoji;
+  if (reacted) delete rxns[myId()];
+  else { rxns[myId()] = emoji; if (post.author !== myId()) sendNotif('reaction', null, 'feed'); }
+  db.collection('posts').doc(postId).update({ reactions: rxns }).catch(() => {});
+  // Optimistic
+  post.reactions = rxns;
+  const row = document.querySelector(`[data-post-id="${postId}"] .reactions-row`);
+  if (row) renderReactionBtns(row, post);
 }
 
-/* ═══════════════════════════════════════════
+/* ════════════════════════════════════════════
    LIGHTBOX
-═══════════════════════════════════════════ */
+════════════════════════════════════════════ */
 function openLightbox(src) {
   byId('lightboxImg').src = src;
   byId('lightbox').hidden = false;
@@ -685,15 +954,14 @@ function closeLightbox() {
   document.documentElement.style.overflow = '';
 }
 
-/* ═══════════════════════════════════════════
+/* ════════════════════════════════════════════
    VOICE NOTES
-═══════════════════════════════════════════ */
+════════════════════════════════════════════ */
 function buildVoicePlayer(audioData) {
   const audio  = new Audio();
   const BARS   = 34;
   let playing  = false;
 
-  // Deterministic-looking waveform seeded by audio length
   const seed = audioData.length % 997;
   const heights = Array.from({ length: BARS }, (_, i) =>
     Math.max(14, Math.min(88, Math.round(
@@ -749,94 +1017,64 @@ function buildMicButton(msgList) {
   let recording   = false;
   let stream      = null;
 
-  const btn = h('button', {
-    class: 'mic-btn',
-    'aria-label': 'Record voice note',
-    title: 'Hold to record',
-  }, '🎙');
+  const btn = h('button', { class: 'mic-btn', 'aria-label': 'Record voice note', title: 'Hold to record' }, '🎙');
 
   async function startRecording() {
     if (recording) return;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch {
-      alert('Microphone access denied.');
-      return;
-    }
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch { alert('Microphone access denied.'); return; }
     chunks = [];
     recorder = new MediaRecorder(stream);
     recorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
     recorder.onstop = () => {
-      const blob   = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
-      // Cap voice notes at 1MB base64
+      const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
       if (blob.size > 750000) { alert('Recording too long — keep it under ~30s.'); stream.getTracks().forEach(t => t.stop()); return; }
       const reader = new FileReader();
       reader.onload = e2 => {
-        state.messages.push({
-          id:        crypto.randomUUID(),
-          author:    state.currentUser,
-          text:      '🎙 Voice note',
-          type:      'voice',
-          audioData: e2.target.result,
-          date:      new Date().toISOString(),
-        });
-        saveAll();
-        renderMessages(msgList);
-        requestAnimationFrame(() => { msgList.scrollTop = msgList.scrollHeight; });
+        db.collection('messages').add({
+          coupleId: coupleId(), author: myId(),
+          text: '🎙 Voice note', type: 'voice',
+          audioData: e2.target.result, date: new Date().toISOString(),
+        }).then(() => sendNotif('message', '🎙 Voice note', 'chat')).catch(() => {});
+        stream.getTracks().forEach(t => t.stop());
+        recording = false; btn.classList.remove('recording'); btn.setAttribute('aria-label', 'Record voice note');
       };
       reader.readAsDataURL(blob);
-      stream.getTracks().forEach(t => t.stop());
-      recording = false;
-      btn.classList.remove('recording');
-      btn.setAttribute('aria-label', 'Record voice note');
     };
     recorder.start();
-    recording = true;
-    btn.classList.add('recording');
-    btn.setAttribute('aria-label', 'Stop recording');
+    recording = true; btn.classList.add('recording'); btn.setAttribute('aria-label', 'Stop recording');
   }
 
-  function stopRecording() {
-    if (!recording || !recorder) return;
-    recorder.stop();
-  }
-
-  // Touch: hold to record
-  btn.addEventListener('mousedown',  startRecording);
+  function stopRecording() { if (!recording || !recorder) return; recorder.stop(); }
+  btn.addEventListener('mousedown', startRecording);
   btn.addEventListener('touchstart', e => { e.preventDefault(); startRecording(); }, { passive: false });
   btn.addEventListener('mouseup',   stopRecording);
   btn.addEventListener('touchend',  stopRecording);
   btn.addEventListener('mouseleave', stopRecording);
-
   return btn;
 }
 
-/* ═══════════════════════════════════════════
+/* ════════════════════════════════════════════
    VIEW: CHAT
-═══════════════════════════════════════════ */
+════════════════════════════════════════════ */
 function renderChat(container) {
   const layout = h('div', { class: 'chat-layout' });
-
-  // Topbar
   const avs = h('div', { class: 'chat-topbar-avatars' });
-  const av1 = mkavatar('ari', 'sm');
-  const av2 = mkavatar('noa', 'sm');
-  avs.append(av1, av2);
+  if (myId())        avs.append(mkavatar(myId(), 'sm'));
+  if (them()?.id)    avs.append(mkavatar(them().id, 'sm'));
 
   layout.append(h('div', { class: 'chat-topbar' },
     avs,
     h('div', {},
-      h('div', { class: 'chat-topbar-title' }, `${CONFIG.people.ari.name} & ${CONFIG.people.noa.name}`),
-      h('div', { class: 'chat-topbar-sub' }, `Posting as ${me().name} · private`),
+      h('div', { class: 'chat-topbar-title' }, me()?.name && them()?.name ? `${me().name} & ${them().name}` : 'chat'),
+      h('div', { class: 'chat-topbar-sub' }, `Posting as ${me()?.name ?? '…'} · private`),
     ),
   ));
 
-  // Messages
   const msgList = h('div', { class: 'chat-messages', id: 'chatMessages' });
   renderMessages(msgList);
   layout.append(msgList);
 
-  // Input
   const textarea = h('textarea', { class: 'chat-textarea', rows: '1', placeholder: 'Message…' });
   textarea.addEventListener('input', () => {
     textarea.style.height = 'auto';
@@ -846,41 +1084,23 @@ function renderChat(container) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(textarea, msgList); }
   });
 
-  const sendBtn = h('button', { class: 'chat-send', 'aria-label': 'Send',
-    onClick: () => sendMsg(textarea, msgList) });
+  const sendBtn = h('button', { class: 'chat-send', 'aria-label': 'Send', onClick: () => sendMsg(textarea, msgList) });
   sendBtn.append(mksvg(SVG.send, ''));
-
-  // Voice note button
   const micBtn = buildMicButton(msgList);
 
-  // "Thinking of you" quick-send
-  const THINKING = [
-    'thinking of you right now ♡',
-    'hi, just you',
-    'missing you a little bit',
-    'you just crossed my mind and I smiled',
-    'just wanted you to know ♡',
-    'wish you were here',
-    'can\'t stop thinking about you',
-    'hi ♡',
-  ];
-
   const thinkBtn = h('button', {
-    class: 'btn-thinking',
-    title: 'Send a "thinking of you"',
-    'aria-label': 'Thinking of you',
+    class: 'btn-thinking', title: 'Send a "thinking of you"', 'aria-label': 'Thinking of you',
     onClick: () => {
       const text = THINKING[Math.floor(Math.random() * THINKING.length)];
-      state.messages.push({ id: crypto.randomUUID(), author: state.currentUser, text, date: new Date().toISOString() });
-      saveAll();
-      renderMessages(msgList);
-      requestAnimationFrame(() => { msgList.scrollTop = msgList.scrollHeight; });
+      db.collection('messages').add({
+        coupleId: coupleId(), author: myId(), text, date: new Date().toISOString(),
+      }).then(() => sendNotif('thinking', text, 'chat')).catch(() => {});
     },
   }, '♡');
 
   layout.append(
     h('div', { class: 'chat-input-area' },
-      h('div', { class: 'chat-input-bar' }, mkavatar(state.currentUser, 'sm'), thinkBtn, textarea, micBtn, sendBtn),
+      h('div', { class: 'chat-input-bar' }, mkavatar(myId(), 'sm'), thinkBtn, textarea, micBtn, sendBtn),
     ),
   );
 
@@ -890,23 +1110,16 @@ function renderChat(container) {
 
 function renderMessages(container) {
   container.innerHTML = '';
+  let lastDay = '', lastAuthor = '';
 
-  let lastDay    = '';
-  let lastAuthor = '';
-
-  state.messages.forEach((msg) => {
+  state.messages.forEach(msg => {
     const day = formatDay(msg.date);
-    if (day !== lastDay) {
-      container.append(h('div', { class: 'date-sep' }, day));
-      lastDay = day;
-      lastAuthor = '';
-    }
+    if (day !== lastDay) { container.append(h('div', { class: 'date-sep' }, day)); lastDay = day; lastAuthor = ''; }
 
-    const isMe      = msg.author === state.currentUser;
-    const newGroup  = msg.author !== lastAuthor;
-    const cls       = `msg ${isMe ? 'msg-r' : 'msg-l'}${newGroup ? ' msg-gap' : ''}`;
+    const isMe     = msg.author === myId();
+    const newGroup = msg.author !== lastAuthor;
+    const cls      = `msg ${isMe ? 'msg-r' : 'msg-l'}${newGroup ? ' msg-gap' : ''}`;
 
-    // Song message with embed
     let bubbleContent;
     if (msg.type === 'song' && msg.embedId && msg.embedType) {
       bubbleContent = h('div', { class: 'msg-song-bubble' },
@@ -919,68 +1132,47 @@ function renderMessages(container) {
       bubbleContent = h('div', { class: 'msg-bubble' }, msg.text);
     }
 
-    const meta    = h('div', { class: 'msg-time' }, formatTime(msg.date));
-    const spacer  = h('div', { class: 'msg-spacer' });
+    const meta     = h('div', { class: 'msg-time' }, formatTime(msg.date));
+    const spacer   = h('div', { class: 'msg-spacer' });
     const avatarEl = newGroup ? mkavatar(msg.author, 'sm') : spacer;
 
     let msgEl;
     if (isMe) {
-      msgEl = h('div', { class: cls }, h('div', { class: 'msg-row' }, bubbleContent), meta);
+      msgEl = h('div', { class: cls },
+        h('div', { class: 'msg-row' }, bubbleContent),
+        meta,
+      );
     } else {
-      msgEl = h('div', { class: cls }, h('div', { class: 'msg-row' }, avatarEl, bubbleContent), meta);
+      msgEl = h('div', { class: cls },
+        h('div', { class: 'msg-row' }, avatarEl, bubbleContent),
+        meta,
+      );
     }
-
     container.append(msgEl);
     lastAuthor = msg.author;
   });
 }
 
-function sendMsg(textarea, msgList) {
-  const text = textarea.value.trim();
-  if (!text) return;
-  state.messages.push({ id: crypto.randomUUID(), author: state.currentUser, text, date: new Date().toISOString() });
-  saveAll();
-  textarea.value = '';
-  textarea.style.height = 'auto';
-  renderMessages(msgList);
-  requestAnimationFrame(() => { msgList.scrollTop = msgList.scrollHeight; });
-}
-
-/* ═══════════════════════════════════════════
+/* ════════════════════════════════════════════
    VIEW: MEMORIES
-═══════════════════════════════════════════ */
+════════════════════════════════════════════ */
 function renderMemories(container) {
   const activeTab = state._memTab || 'memories';
   const wrap = h('div', { class: 'view-wrap-wide' });
-
-  // Tab toggle
   const tabBar = h('div', { class: 'mem-tabs' },
-    h('button', {
-      class: `mem-tab${activeTab === 'memories' ? ' active' : ''}`,
-      onClick: () => { state._memTab = 'memories'; navigateTo('memories'); },
-    }, '🌿 Memories'),
-    h('button', {
-      class: `mem-tab${activeTab === 'bucket' ? ' active' : ''}`,
-      onClick: () => { state._memTab = 'bucket'; navigateTo('memories'); },
-    }, '✓ Bucket List'),
+    h('button', { class: `mem-tab${activeTab === 'memories' ? ' active' : ''}`,
+      onClick: () => { state._memTab = 'memories'; navigateTo('memories'); } }, '🌿 Memories'),
+    h('button', { class: `mem-tab${activeTab === 'bucket' ? ' active' : ''}`,
+      onClick: () => { state._memTab = 'bucket';   navigateTo('memories'); } }, '✓ Bucket List'),
   );
-
   wrap.append(tabBar);
-
-  if (activeTab === 'bucket') {
-    renderBucketList(wrap);
-  } else {
-    renderMemoriesTab(wrap);
-  }
-
+  if (activeTab === 'bucket') renderBucketList(wrap);
+  else renderMemoriesTab(wrap);
   container.append(wrap);
 }
 
 function renderMemoriesTab(wrap) {
-  wrap.append(h('div', { class: 'memories-header' },
-    h('h1', { class: 'view-title' }, 'memories'),
-  ));
-
+  wrap.append(h('div', { class: 'memories-header' }, h('h1', { class: 'view-title' }, 'memories')));
   wrap.append(buildMemForm());
 
   const sorted = [...state.memories].sort((a, b) => b.createdAt - a.createdAt);
@@ -1015,10 +1207,8 @@ function renderBucketList(wrap) {
   function addBucketItem() {
     const text = inp.value.trim();
     if (!text) return;
-    state.bucket.unshift({ id: crypto.randomUUID(), text, done: false, createdAt: Date.now(), author: state.currentUser });
-    saveAll();
+    db.collection('bucket').add({ coupleId: coupleId(), text, done: false, createdAt: Date.now(), author: myId() }).catch(() => {});
     inp.value = '';
-    renderBucketItems(list);
   }
 
   wrap.append(h('div', { class: 'bucket-add-row' }, inp, addBtn));
@@ -1045,24 +1235,11 @@ function renderBucketItems(list) {
   [...todo, ...done].forEach(item => {
     const row = h('div', { class: `bucket-item${item.done ? ' bucket-done' : ''}` },
       h('button', {
-        class: 'bucket-check',
-        'aria-label': item.done ? 'Mark undone' : 'Mark done',
-        onClick: () => {
-          const it = state.bucket.find(b => b.id === item.id);
-          if (it) it.done = !it.done;
-          saveAll();
-          renderBucketItems(list);
-        },
+        class: 'bucket-check', 'aria-label': item.done ? 'Mark undone' : 'Mark done',
+        onClick: () => db.collection('bucket').doc(item.id).update({ done: !item.done }).catch(() => {}),
       }, item.done ? '✓' : '○'),
       h('span', { class: 'bucket-text' }, item.text),
-      h('button', {
-        class: 'mem-tile-del',
-        onClick: () => {
-          state.bucket = state.bucket.filter(b => b.id !== item.id);
-          saveAll();
-          renderBucketItems(list);
-        },
-      }, '✕'),
+      h('button', { class: 'mem-tile-del', onClick: () => db.collection('bucket').doc(item.id).delete().catch(() => {}) }, '✕'),
     );
     list.append(row);
   });
@@ -1071,13 +1248,11 @@ function renderBucketItems(list) {
 function buildMemForm() {
   let open = false;
   const formBody = h('div', { class: 'mem-form-body' });
-
-  const titleIn = h('input', { class: 'field-input', type: 'text', maxlength: '72', placeholder: 'Give it a title' });
+  const titleIn  = h('input', { class: 'field-input', type: 'text', maxlength: '72', placeholder: 'Give it a title' });
   const detailsIn = h('textarea', { class: 'field-input', rows: '3', maxlength: '420', placeholder: 'What made this moment unforgettable?' });
-  const moodSel = h('select', { class: 'field-input' },
+  const moodSel  = h('select', { class: 'field-input' },
     ...['warm', 'playful', 'calm', 'wild', 'silly', 'grateful'].map(m =>
-      h('option', { value: m }, m.charAt(0).toUpperCase() + m.slice(1))),
-  );
+      h('option', { value: m }, m.charAt(0).toUpperCase() + m.slice(1))));
   const dateIn = h('input', { class: 'field-input', type: 'date' });
   dateIn.valueAsDate = new Date();
 
@@ -1093,9 +1268,11 @@ function buildMemForm() {
     const title   = titleIn.value.trim();
     const details = detailsIn.value.trim();
     if (!title || !details || !dateIn.value) { titleIn.focus(); return; }
-    state.memories.unshift({ id: crypto.randomUUID(), title, details, mood: moodSel.value, date: dateIn.value, createdAt: Date.now() });
-    saveAll();
-    navigateTo('memories');
+    db.collection('memories').add({
+      coupleId: coupleId(), author: myId(), title, details,
+      mood: moodSel.value, date: dateIn.value, createdAt: Date.now(),
+    }).then(() => sendNotif('memory', title, 'memories')).catch(() => {});
+    toggle();
   }
 
   formBody.append(
@@ -1105,35 +1282,22 @@ function buildMemForm() {
       h('div', {}, h('label', { class: 'field-label' }, 'Mood'), moodSel),
       h('div', {}, h('label', { class: 'field-label' }, 'Date'), dateIn),
     ),
-    h('div', { class: 'mem-form-actions' },
-      h('button', { class: 'btn btn-primary', onClick: submit }, 'Save memory'),
-    ),
+    h('div', { class: 'mem-form-actions' }, h('button', { class: 'btn btn-primary', onClick: submit }, 'Save memory')),
   );
 
   const addBtn = h('button', { class: 'btn btn-primary', onClick: toggle }, '+ Add memory');
-
-  return h('div', { class: 'mem-add-card' },
-    h('div', { class: 'mem-add-head' },
-      h('h3', {}, 'New memory'), addBtn,
-    ),
-    formBody,
-  );
+  return h('div', { class: 'mem-add-card' }, h('div', { class: 'mem-add-head' }, h('h3', {}, 'New memory'), addBtn), formBody);
 }
 
 function buildMemTile(mem) {
   const color = moodColor(mem.mood);
-
   return h('div', { class: 'mem-tile' },
-    h('div', { class: 'mem-tile-mood' },
-      h('div', { class: 'mood-dot', style: { background: color } }),
-      h('span', { class: 'mood-label' }, mem.mood),
-    ),
+    h('div', { class: 'mem-tile-mood' }, h('div', { class: 'mood-dot', style: { background: color } }), h('span', { class: 'mood-label' }, mem.mood)),
     h('h3', { class: 'mem-tile-title' }, mem.title),
     h('p',  { class: 'mem-tile-details' }, mem.details),
     h('div', { class: 'mem-tile-foot' },
       h('time', { class: 'mem-tile-date', datetime: mem.date },
-        new Date(mem.date).toLocaleDateString(CONFIG.locale, { day: 'numeric', month: 'short', year: 'numeric' }),
-      ),
+        new Date(mem.date).toLocaleDateString(CONFIG.locale, { day: 'numeric', month: 'short', year: 'numeric' })),
       h('button', { class: 'mem-tile-del', onClick: () => deleteMem(mem.id) }, 'Delete'),
     ),
   );
@@ -1141,141 +1305,92 @@ function buildMemTile(mem) {
 
 function deleteMem(id) {
   if (!confirm('Delete this memory?')) return;
-  state.memories = state.memories.filter(m => m.id !== id);
-  saveAll();
-  navigateTo('memories');
+  db.collection('memories').doc(id).delete().catch(() => {});
 }
 
-/* ═══════════════════════════════════════════
+/* ════════════════════════════════════════════
    VIEW: PROFILE
-═══════════════════════════════════════════ */
+════════════════════════════════════════════ */
 function renderProfile(container) {
   const wrap = h('div', { class: 'view-wrap-wide profile-view' });
+  const myPosts    = state.posts.filter(p => p.author === myId()).length;
+  const theirPosts = state.posts.filter(p => p.author === them()?.id).length;
+  const myMsgs     = state.messages.filter(m => m.author === myId()).length;
+  const theirMsgs  = state.messages.filter(m => m.author === them()?.id).length;
 
-  const postsByAri = state.posts.filter(p => p.author === 'ari').length;
-  const postsByNoa = state.posts.filter(p => p.author === 'noa').length;
-  const totalMsgs  = state.messages.length;
-
-  wrap.append(
-    h('div', { class: 'profile-grid' },
-      buildProfileCard('ari', postsByAri, Math.floor(totalMsgs / 2)),
-      buildProfileCard('noa', postsByNoa, Math.ceil(totalMsgs / 2)),
-    ),
-    buildTogetherBanner(),
-  );
-
+  const cards = h('div', { class: 'profile-grid' });
+  cards.append(buildProfileCard(myId(), myPosts, myMsgs));
+  if (them()) cards.append(buildProfileCard(them().id, theirPosts, theirMsgs));
+  wrap.append(cards);
+  if (them()) wrap.append(buildTogetherBanner());
   container.append(wrap);
 }
 
-function saveProfiles() {
-  const data = {};
-  for (const [id, p] of Object.entries(CONFIG.people)) {
-    data[id] = { name: p.name, bio: p.bio };
-  }
-  persist(CONFIG.keys.profiles, data);
-}
+function buildProfileCard(uid, posts, msgs) {
+  const p    = personById(uid);
+  const isMe = uid === myId();
 
-function buildProfileCard(personId, posts, msgs) {
-  const p      = CONFIG.people[personId];
-  const isMe   = personId === state.currentUser;
-
-  // Avatar with edit button overlay
-  const avatarEl = mkavatar(personId, 'xl');
+  const avatarEl   = mkavatar(uid, 'xl');
   const avatarWrap = h('div', { class: 'profile-avatar-wrap' }, avatarEl);
 
   if (isMe) {
-    const editBadge = h('label', {
-      class: 'avatar-edit-badge',
-      title: 'Change photo',
-      'aria-label': 'Change profile photo',
-    }, '📷');
-    const fileIn = h('input', {
-      type: 'file',
-      accept: 'image/*',
-      style: { display: 'none' },
-    });
+    const fileIn = h('input', { type: 'file', accept: 'image/*', style: { display: 'none' } });
     fileIn.addEventListener('change', () => {
       const file = fileIn.files[0];
       if (!file) return;
-      // 2 MB safety cap
       if (file.size > 2 * 1024 * 1024) { alert('Photo must be under 2 MB.'); return; }
       const reader = new FileReader();
       reader.onload = e => {
-        state.avatars[personId] = e.target.result;
-        saveAll();
-        navigateTo('profile');
+        db.collection('users').doc(uid).update({ avatarData: e.target.result }).catch(() => {});
       };
       reader.readAsDataURL(file);
     });
+    const editBadge = h('label', { class: 'avatar-edit-badge', title: 'Change photo' }, '📷');
     editBadge.append(fileIn);
     avatarWrap.append(editBadge);
-
-    // Remove photo button
-    if (state.avatars[personId]) {
-      avatarWrap.append(h('button', {
-        class: 'avatar-remove-btn',
-        title: 'Remove photo',
-        onClick: () => { delete state.avatars[personId]; saveAll(); navigateTo('profile'); },
-      }, '✕'));
+    if (p?.avatarData) {
+      avatarWrap.append(h('button', { class: 'avatar-remove-btn', title: 'Remove photo',
+        onClick: () => db.collection('users').doc(uid).update({ avatarData: null }).catch(() => {}) }, '✕'));
     }
   }
 
-  // Editable name
   const nameEl = isMe
-    ? buildEditableField('h2', p.name, 'profile-name', val => {
-        CONFIG.people[personId].name = val || p.initial;
-        saveProfiles();
+    ? buildEditableField('h2', p?.name ?? '', 'profile-name', val => {
+        db.collection('users').doc(uid).update({ name: val || p?.name }).catch(() => {});
         renderSidebar();
       })
-    : h('h2', { class: 'profile-name' }, p.name);
+    : h('h2', { class: 'profile-name' }, p?.name ?? '');
 
-  // Editable bio
   const bioEl = isMe
-    ? buildEditableField('p', p.bio, 'profile-bio', val => {
-        CONFIG.people[personId].bio = val;
-        saveProfiles();
-      })
-    : h('p', { class: 'profile-bio' }, p.bio);
+    ? buildEditableField('p', p?.bio ?? '', 'profile-bio', val => db.collection('users').doc(uid).update({ bio: val }).catch(() => {}))
+    : h('p', { class: 'profile-bio' }, p?.bio ?? '');
+
+  const colorDot = h('span', { class: 'profile-color-dot', style: { background: p?.color ?? '#888' } });
 
   return h('div', { class: 'profile-card' },
     avatarWrap,
     nameEl,
-    bioEl,
+    h('div', { class: 'profile-color-row' }, colorDot, bioEl),
     isMe ? h('div', { class: 'profile-edit-hint' }, 'tap name or bio to edit') : null,
     h('div', { class: 'profile-stats' },
-      h('div', { class: 'profile-stat' },
-        h('span', { class: 'profile-stat-n' }, String(posts)),
-        h('span', { class: 'profile-stat-l' }, 'posts'),
-      ),
-      h('div', { class: 'profile-stat' },
-        h('span', { class: 'profile-stat-n' }, String(msgs)),
-        h('span', { class: 'profile-stat-l' }, 'messages'),
-      ),
+      h('div', { class: 'profile-stat' }, h('span', { class: 'profile-stat-n' }, String(posts)), h('span', { class: 'profile-stat-l' }, 'posts')),
+      h('div', { class: 'profile-stat' }, h('span', { class: 'profile-stat-n' }, String(msgs)), h('span', { class: 'profile-stat-l' }, 'messages')),
     ),
+    isMe ? h('button', { class: 'profile-signout', onClick: () => { if (confirm('Sign out?')) auth.signOut(); } }, 'Sign out') : null,
   );
 }
 
 function buildEditableField(tag, value, className, onSave) {
   const el = h(tag, { class: `${className} editable-field`, title: 'Tap to edit' }, value);
   el.addEventListener('click', () => {
-    if (el.querySelector('input, textarea')) return; // already editing
+    if (el.querySelector('input, textarea')) return;
     const isMultiline = tag === 'p';
-    const inp = isMultiline
-      ? h('textarea', { class: 'inline-edit-input', rows: '3' })
-      : h('input',    { class: 'inline-edit-input', type: 'text' });
+    const inp = isMultiline ? h('textarea', { class: 'inline-edit-input', rows: '3' }) : h('input', { class: 'inline-edit-input', type: 'text' });
     inp.value = value;
     el.innerHTML = '';
     el.append(inp);
-    inp.focus();
-    inp.select();
-
-    function commit() {
-      const val = inp.value.trim() || value;
-      value = val;
-      el.innerHTML = '';
-      el.textContent = val;
-      onSave(val);
-    }
+    inp.focus(); inp.select();
+    function commit() { const val = inp.value.trim() || value; value = val; el.innerHTML = ''; el.textContent = val; onSave(val); }
     inp.addEventListener('blur', commit);
     inp.addEventListener('keydown', e => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); inp.blur(); }
@@ -1292,7 +1407,7 @@ function ordinal(n) {
 }
 
 function nextAnniversaryInfo() {
-  const start  = new Date(CONFIG.startDate);
+  const start  = new Date(state.coupleDoc?.startDate ?? new Date().toISOString().slice(0,10));
   const now    = new Date();
   const thisYr = new Date(now.getFullYear(), start.getMonth(), start.getDate());
   const isToday = thisYr.toDateString() === now.toDateString();
@@ -1305,19 +1420,21 @@ function nextAnniversaryInfo() {
 }
 
 function buildTogetherBanner() {
-  const av1 = mkavatar('ari', 'md');
-  const av2 = mkavatar('noa', 'md');
-  av2.style.cssText = 'margin-left:-12px;border:2px solid var(--surface)';
+  const av1 = me()   ? mkavatar(myId(),    'md') : null;
+  const av2 = them() ? mkavatar(them().id, 'md') : null;
+  if (av2) av2.style.cssText = 'margin-left:-12px;border:2px solid var(--surface)';
 
   const anniv = nextAnniversaryInfo();
   const anniversaryEl = anniv.isToday
     ? h('div', { class: 'anniv-chip anniv-today' }, `🎉 Happy ${anniv.num}${ordinal(anniv.num)} anniversary!`)
     : h('div', { class: 'anniv-chip' }, `${anniv.days}d until anniversary #${anniv.num}`);
 
+  const names = me()?.name && them()?.name ? `${me().name} & ${them().name}` : 'us';
+
   return h('div', { class: 'together-banner' },
     h('div', { class: 'together-avs' }, av1, av2),
     h('div', { class: 'together-info' },
-      h('h3', {}, `${CONFIG.people.ari.name} & ${CONFIG.people.noa.name}`),
+      h('h3', {}, names),
       h('p',  {}, `${state.memories.length} memories saved together`),
       anniversaryEl,
     ),
@@ -1328,9 +1445,9 @@ function buildTogetherBanner() {
   );
 }
 
-/* ═══════════════════════════════════════════
+/* ════════════════════════════════════════════
    SPOTIFY PREMIUM — PKCE AUTH + SEARCH + SDK
-═══════════════════════════════════════════ */
+════════════════════════════════════════════ */
 const SP = {
   SCOPES:  'streaming user-read-email user-read-private user-modify-playback-state user-read-playback-state',
   SDK_URL: 'https://sdk.scdn.co/spotify-player.js',
@@ -1340,10 +1457,7 @@ const SP = {
 
 function spClientId()   { return '268bd358b5b0411aacd9c8ae3dc29205'; }
 function spRedirectUri() {
-  const base = location.pathname.endsWith('index.html')
-    ? location.pathname.slice(0, -10)
-    : location.pathname;
-  // Spotify forbids 'localhost' — use explicit 127.0.0.1 loopback instead
+  const base = location.pathname.endsWith('index.html') ? location.pathname.slice(0, -10) : location.pathname;
   const origin = location.origin.replace('localhost', '127.0.0.1');
   return origin + base;
 }
@@ -1657,60 +1771,44 @@ function buildTrackResult(track) {
 }
 
 function shareTrack(track) {
-  state.songs.unshift({
-    id:        crypto.randomUUID(),
-    author:    state.currentUser,
+  db.collection('songs').add({
+    coupleId: coupleId(), author: myId(),
     spotifyUrl: `https://open.spotify.com/track/${track.id}`,
-    embedId:   track.id,
-    embedType: 'track',
-    note:      '',
-    date:      new Date().toISOString(),
-    trackName: track.name,
+    embedId:    track.id, embedType: 'track', note: '',
+    date:       new Date().toISOString(),
+    trackName:  track.name,
     trackArtists: track.artists.map(a => a.name).join(', '),
-  });
-  saveAll();
+  }).then(() => sendNotif('song', track.name, 'music')).catch(() => {});
   navigateTo('music');
 }
 
 function buildSongComposer() {
   const body = h('div', { class: 'composer-body' });
   let parsed = null;
-  let previewEl = null;
-
-  const linkIn = h('input', { class: 'field-input', type: 'url', placeholder: 'Paste Spotify link or URI…' });
-  const noteIn = h('textarea', { class: 'field-input', rows: '2', maxlength: '200', placeholder: 'Say something about it (optional)' });
+  const linkIn    = h('input', { class: 'field-input', type: 'url', placeholder: 'Paste Spotify link or URI…' });
+  const noteIn    = h('textarea', { class: 'field-input', rows: '2', maxlength: '200', placeholder: 'Say something about it (optional)' });
   const previewWrap = h('div', { class: 'song-preview-wrap' });
-  const errorEl = h('p', { class: 'song-error', style: { display: 'none' } }, 'Not a valid Spotify link.');
+  const errorEl   = h('p', { class: 'song-error', style: { display: 'none' } }, 'Not a valid Spotify link.');
 
   linkIn.addEventListener('input', () => {
     parsed = parseSpotifyUrl(linkIn.value);
-    previewWrap.innerHTML = '';
-    errorEl.style.display = 'none';
-    if (linkIn.value.trim() && !parsed) {
-      errorEl.style.display = '';
-    } else if (parsed) {
-      previewEl = buildSpotifyEmbed(parsed.type, parsed.id);
-      previewWrap.append(previewEl);
-    }
+    previewWrap.innerHTML = ''; errorEl.style.display = 'none';
+    if (linkIn.value.trim() && !parsed) errorEl.style.display = '';
+    else if (parsed) previewWrap.append(buildSpotifyEmbed(parsed.type, parsed.id));
   });
 
-  function open() { body.classList.add('open'); linkIn.focus(); }
+  function open()  { body.classList.add('open'); linkIn.focus(); }
   function close() { body.classList.remove('open'); linkIn.value = ''; noteIn.value = ''; previewWrap.innerHTML = ''; parsed = null; }
 
   function submit() {
     if (!parsed) { linkIn.focus(); return; }
-    state.songs.unshift({
-      id:        crypto.randomUUID(),
-      author:    state.currentUser,
+    db.collection('songs').add({
+      coupleId: coupleId(), author: myId(),
       spotifyUrl: linkIn.value.trim(),
-      embedId:   parsed.id,
-      embedType: parsed.type,
-      note:      noteIn.value.trim(),
-      date:      new Date().toISOString(),
-    });
-    saveAll();
+      embedId:   parsed.id, embedType: parsed.type,
+      note:      noteIn.value.trim(), date: new Date().toISOString(),
+    }).then(() => sendNotif('song', noteIn.value.trim() || parsed.id, 'music')).catch(() => {});
     close();
-    navigateTo('music');
   }
 
   body.append(
@@ -1718,7 +1816,7 @@ function buildSongComposer() {
     previewWrap,
     h('div', {}, h('label', { class: 'field-label' }, 'Note'), noteIn),
     h('div', { class: 'composer-actions' },
-      h('p', { class: 'composer-posting-as' }, `Sharing as ${me().name}`),
+      h('p', { class: 'composer-posting-as' }, `Sharing as ${me()?.name ?? ''}`),
       h('div', { style: { display: 'flex', gap: '8px' } },
         h('button', { class: 'btn btn-ghost', onClick: close }, 'Cancel'),
         h('button', { class: 'btn btn-primary', onClick: submit }, 'Share'),
@@ -1730,14 +1828,14 @@ function buildSongComposer() {
     onClick: open, onKeydown: e => { if (e.key === 'Enter') open(); } }, '🎵 Share a song…');
 
   return h('div', { class: 'composer-card' },
-    h('div', { class: 'composer-trigger' }, mkavatar(state.currentUser, 'sm'), placeholder),
+    h('div', { class: 'composer-trigger' }, mkavatar(myId(), 'sm'), placeholder),
     body,
   );
 }
 
 function buildSongCard(song) {
-  const person  = CONFIG.people[song.author] || {};
-  const isOwn   = song.author === state.currentUser;
+  const person  = personById(song.author) || {};
+  const isOwn   = song.author === myId();
   const display = song.trackName
     ? `${song.trackName}${song.trackArtists ? ' · ' + song.trackArtists : ''}`
     : song.embedType;
@@ -1751,8 +1849,7 @@ function buildSongCard(song) {
   if (isOwn) {
     actions.push(h('button', { class: 'post-delete', onClick: () => {
       if (!confirm('Remove this song?')) return;
-      state.songs = state.songs.filter(s => s.id !== song.id);
-      saveAll(); navigateTo('music');
+      db.collection('songs').doc(song.id).delete().catch(() => {});
     }}, 'Delete'));
   }
 
@@ -1760,7 +1857,7 @@ function buildSongCard(song) {
     h('div', { class: 'post-header' },
       mkavatar(song.author, 'sm'),
       h('div', {},
-        h('div', { class: 'post-author-name' }, person.name || song.author),
+        h('div', { class: 'post-author-name' }, person.name ?? song.author),
         h('div', { class: 'post-meta' }, `${display} · ${timeAgo(song.date)}`),
       ),
     ),
@@ -1772,22 +1869,17 @@ function buildSongCard(song) {
 
 function sendSongToChat(song) {
   const text = `🎵 ${song.spotifyUrl}${song.note ? ' · ' + song.note : ''}`;
-  state.messages.push({
-    id:        crypto.randomUUID(),
-    author:    state.currentUser,
-    text,
-    type:      'song',
-    embedId:   song.embedId,
-    embedType: song.embedType,
-    date:      new Date().toISOString(),
-  });
-  saveAll();
+  db.collection('messages').add({
+    coupleId: coupleId(), author: myId(), text,
+    type: 'song', embedId: song.embedId, embedType: song.embedType,
+    date: new Date().toISOString(),
+  }).then(() => sendNotif('song', null, 'chat')).catch(() => {});
   navigateTo('chat');
 }
 
-/* ═══════════════════════════════════════════
+/* ════════════════════════════════════════════
    SPLASH
-═══════════════════════════════════════════ */
+════════════════════════════════════════════ */
 function runSplash(onDone) {
   const splash = byId('splash');
   if (!splash) { onDone(); return; }
@@ -1806,53 +1898,44 @@ function runSplash(onDone) {
    INIT
 ═══════════════════════════════════════════ */
 async function init() {
-  // Handle Spotify OAuth callback
-  const urlParams = new URLSearchParams(location.search);
-  if (urlParams.get('state') === 'sp') {
-    history.replaceState({}, '', location.pathname);
-    if (urlParams.get('error')) {
-      // Spotify rejected the request — show a helpful error after load
-      setTimeout(() => navigateTo('music'), 100);
-      localStorage.setItem('sp-auth-error', urlParams.get('error'));
-    } else if (urlParams.get('code')) {
-      const ok = await spExchangeCode(urlParams.get('code')).catch(() => false);
-      if (!ok) localStorage.setItem('sp-auth-error', 'token_exchange_failed');
-    }
-  }
-
-  // Start Spotify player in background (needs Premium)
-  if (spIsAuthed()) spInitPlayer().catch(() => {});
-  loadState();
-
+  // Nav buttons
   document.querySelectorAll('.nav-btn').forEach(btn => {
     btn.addEventListener('click', () => navigateTo(btn.dataset.view));
   });
 
   // Lightbox
-  byId('lightboxClose').addEventListener('click', closeLightbox);
-  byId('lightboxBg').addEventListener('click', closeLightbox);
+  byId('lightboxClose')?.addEventListener('click', closeLightbox);
+  byId('lightboxBg')?.addEventListener('click', closeLightbox);
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLightbox(); });
 
-  // PWA — register service worker (requires HTTP/HTTPS, not file://)
+  // Notification panel close
+  byId('notifClose')?.addEventListener('click', closeNotifPanel);
+  byId('notifBackdrop')?.addEventListener('click', closeNotifPanel);
+  byId('notifMarkAll')?.addEventListener('click', () => { markAllNotifsRead(); renderNotifPanel(); });
+
+  // Service worker
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(() => { /* file:// — skip */ });
+    navigator.serviceWorker.register('sw.js').catch(() => {});
   }
 
-  // Hide bottom nav when keyboard opens (visual viewport shrinks significantly)
+  // Hide bottom nav when keyboard opens
   if (window.visualViewport) {
     const bottomNav = byId('bottomNav');
-    const threshold = 0.75; // if viewport is less than 75% of screen height, keyboard is up
     window.visualViewport.addEventListener('resize', () => {
       const ratio = window.visualViewport.height / window.screen.height;
-      if (bottomNav) bottomNav.style.display = ratio < threshold ? 'none' : '';
+      if (bottomNav) bottomNav.style.display = ratio < 0.75 ? 'none' : '';
     });
   }
 
-  runSplash(() => {
-    renderSidebar();
-    navigateTo('feed');
-    updateUnreadBadge();
+  // ── DEV BYPASS: skip auth ──────────────────
+  runSplash(async () => {
+    state.authUser   = { uid: 'dev-user' };
+    state.myProfile  = { id: 'dev-user', name: 'You', initial: 'Y', color: '#7F1734', bio: '', coupleId: 'dev-couple', partnerId: 'dev-partner', inviteCode: 'DEVXXX', avatarData: null, lastChatOpenAt: 0 };
+    state.partnerProfile = { id: 'dev-partner', name: 'Partner', initial: 'P', color: '#A8458C', bio: '', coupleId: 'dev-couple', partnerId: 'dev-user', inviteCode: 'DEVYYY', avatarData: null, lastChatOpenAt: 0 };
+    state.coupleDoc  = { id: 'dev-couple', since: Date.now() - 86400000 * 30, users: ['dev-user', 'dev-partner'] };
+    await startApp();
   });
+  // ── END DEV BYPASS ──────────────────────────
 }
 
 init();

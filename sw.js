@@ -1,15 +1,6 @@
-/* ours. — service worker
-   Caches the app shell for offline use.
-   Only activates when served over HTTP/HTTPS (not file://).
-*/
-const CACHE = 'ours-v1';
-const ASSETS = [
-  './',
-  './index.html',
-  './styles.css',
-  './app.js',
-  './manifest.json',
-];
+/* ours. — service worker (caching DISABLED during development) */
+const CACHE = 'ours-v5';
+const ASSETS = [];
 
 self.addEventListener('install', e => {
   e.waitUntil(
