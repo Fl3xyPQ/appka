@@ -6,6 +6,15 @@
 firebase.initializeApp(FIREBASE_CONFIG);
 const db   = firebase.firestore();
 const auth = firebase.auth();
+
+// Edge Tracking Prevention blocks Firebase's default IndexedDB/localStorage
+// persistence. Fall back to SESSION (sessionStorage) so auth tokens survive
+// within the tab but don't rely on cross-site storage access.
+auth.setPersistence(firebase.auth.Auth.Persistence.SESSION).catch(() => {});
+
+// Long-polling avoids WebSocket issues behind strict tracking/firewall policies.
+db.settings({ experimentalForceLongPolling: true, merge: true });
+
 let messaging = null;
 try { messaging = firebase.messaging(); } catch { /* unsupported */ }
 
