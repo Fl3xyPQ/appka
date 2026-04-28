@@ -101,6 +101,14 @@ function personById(uid) {
 
 const FieldValue = firebase.firestore.FieldValue;
 
+// Returns a Promise that rejects with a network-failed error after `ms` milliseconds.
+// Used with Promise.race to surface connection hangs as user-visible errors.
+function mkTimeout(ms) {
+  return new Promise((_, rej) =>
+    setTimeout(() => rej({ code: 'auth/network-request-failed' }), ms)
+  );
+}
+
 function h(tag, attrs, ...children) {
   const el = document.createElement(tag);
   if (attrs) {
@@ -396,11 +404,6 @@ function showAuth(mode = 'login') {
       btn.disabled = true;
       btn.textContent = isReg ? 'Creating…' : 'Signing in…';
       errorEl.style.display = 'none';
-      // Helper: reject after ms milliseconds with a network-failed error so a
-      // hanging Firebase request doesn't leave the button in a loading state forever.
-      const mkTimeout = ms => new Promise((_, rej) =>
-        setTimeout(() => rej({ code: 'auth/network-request-failed' }), ms)
-      );
       try {
         if (isReg) {
           const cred = await Promise.race([
