@@ -571,10 +571,14 @@ async function showPairing(userDoc) {
 }
 
 async function startApp() {
+  console.log('[startApp] hiding auth overlay...');
   hideAuthOverlay();
+  console.log('[startApp] showing appLayout...');
   byId('appLayout').hidden = false;
-  renderSidebar();
-  if (myId() !== 'dev-user') { startListeners(); requestPushPermission(); }
+  console.log('[startApp] renderSidebar...');
+  try { renderSidebar(); } catch(e) { console.error('[startApp] renderSidebar threw:', e); }
+  console.log('[startApp] startListeners...');
+  if (myId() !== 'dev-user') { try { startListeners(); } catch(e) { console.error('[startApp] startListeners threw:', e); } requestPushPermission(); }
 
   const urlParams = new URLSearchParams(location.search);
   if (urlParams.get('state') === 'sp') {
@@ -585,11 +589,13 @@ async function startApp() {
       const ok = await spExchangeCode(urlParams.get('code')).catch(() => false);
       if (!ok) localStorage.setItem('sp-auth-error', 'token_exchange_failed');
     }
+    console.log('[startApp] navigating to music...');
     navigateTo('music');
   } else {
+    console.log('[startApp] navigating to feed...');
     navigateTo('feed');
   }
-
+  console.log('[startApp] done');
   if (spIsAuthed()) spInitPlayer().catch(() => {});
 }
 
@@ -1967,6 +1973,7 @@ function runSplash(onDone) {
 ═══════════════════════════════════════════ */
 function setupAuthListener(onReady) {
   auth.onAuthStateChanged(user => {
+    console.log('[auth] onAuthStateChanged fired, user:', user ? user.uid : 'null');
     if (onReady) { onReady(); onReady = null; }
     if (!user) {
       state.authUser = null; state.myProfile = null; state.partnerProfile = null; state.coupleDoc = null;
@@ -1981,18 +1988,18 @@ function setupAuthListener(onReady) {
 }
 
 async function watchUserDoc(uid, attempt = 0) {
-  // Use .get() (plain HTTP) instead of onSnapshot (WebSocket) for the initial
-  // profile load — far more reliable when Firestore realtime connectivity is
-  // degraded or security rules are slow to evaluate.
+  console.log('[watchUserDoc] start, uid:', uid, 'attempt:', attempt);
   try {
+    console.log('[watchUserDoc] fetching user doc...');
     const snap = await Promise.race([
       db.collection('users').doc(uid).get(),
       mkTimeout(12000),
     ]);
+    console.log('[watchUserDoc] user doc fetch done, exists:', snap.exists);
 
     if (!snap.exists) {
-      // Profile not yet written (race right after register) — retry a few times.
       if (attempt < 6) {
+        console.log('[watchUserDoc] doc not yet written, retrying in', 800 + attempt * 400, 'ms');
         setTimeout(() => watchUserDoc(uid, attempt + 1), 800 + attempt * 400);
       } else {
         showAuth('login', 'Could not find your profile. Please try signing in again.');
@@ -2002,27 +2009,31 @@ async function watchUserDoc(uid, attempt = 0) {
 
     const profile = { id: snap.id, ...snap.data() };
     state.myProfile = profile;
+    console.log('[watchUserDoc] profile loaded, coupleId:', profile.coupleId, 'partnerId:', profile.partnerId);
 
     if (!profile.coupleId) {
+      console.log('[watchUserDoc] no coupleId → showing pairing screen');
       showPairing(profile);
-      // Subscribe via onSnapshot ONLY to detect when the partner links up so
-      // the pairing screen auto-advances without a manual refresh.
       const unsub = db.collection('users').doc(uid).onSnapshot(snap2 => {
         if (!snap2.exists) return;
         const updated = { id: snap2.id, ...snap2.data() };
         if (updated.coupleId) {
+          console.log('[watchUserDoc] partner linked up via onSnapshot, reloading...');
           unsub();
           state.myProfile = updated;
           watchUserDoc(uid);
         }
-      }, () => { /* ignore realtime errors here — user can pair manually */ });
+      }, () => { /* ignore realtime errors — user can pair manually */ });
       return;
     }
 
-    // Guard against double-start (connect() may have already called startApp).
     const appLayout = byId('appLayout');
-    if (appLayout && !appLayout.hidden) return;
+    if (appLayout && !appLayout.hidden) {
+      console.log('[watchUserDoc] appLayout already visible, skipping double-start');
+      return;
+    }
 
+    console.log('[watchUserDoc] fetching couple + partner docs...');
     const [coupleSnap, partnerSnap] = await Promise.race([
       Promise.all([
         db.collection('couples').doc(profile.coupleId).get(),
@@ -2030,11 +2041,15 @@ async function watchUserDoc(uid, attempt = 0) {
       ]),
       mkTimeout(12000),
     ]);
+    console.log('[watchUserDoc] couple exists:', coupleSnap.exists, ' partner exists:', partnerSnap?.exists);
     state.coupleDoc      = coupleSnap.exists ? { id: coupleSnap.id, ...coupleSnap.data() } : null;
     state.partnerProfile = (partnerSnap && partnerSnap.exists) ? { id: partnerSnap.id, ...partnerSnap.data() } : null;
+    console.log('[watchUserDoc] calling startApp()');
     await startApp();
+    console.log('[watchUserDoc] startApp() done');
 
   } catch (err) {
+    console.error('[watchUserDoc] error:', err);
     const msg = err?.message === 'timeout' || err?.code === 'auth/network-request-failed'
       ? 'Connection timed out. Check your internet and try again.'
       : `Could not load your data (${err?.code ?? err?.message ?? 'unknown'}). Please try again.`;
