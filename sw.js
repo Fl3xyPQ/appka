@@ -31,7 +31,7 @@ self.addEventListener('fetch', e => {
           caches.open(CACHE).then(c => c.put(e.request, clone));
         }
         return res;
-      }).catch(() => cached);
+      }).catch(() => cached || new Response('', { status: 503, statusText: 'Service Unavailable' }));
     })
   );
 });
