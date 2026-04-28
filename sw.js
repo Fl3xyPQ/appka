@@ -1,5 +1,5 @@
 /* ours. — service worker (caching DISABLED during development) */
-const CACHE = 'ours-v5';
+const CACHE = 'ours-v6';
 const ASSETS = [];
 
 self.addEventListener('install', e => {
