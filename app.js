@@ -404,6 +404,7 @@ function showAuth(mode = 'login') {
       btn.disabled = true;
       btn.textContent = isReg ? 'Creating…' : 'Signing in…';
       errorEl.style.display = 'none';
+      let succeeded = false;
       try {
         if (isReg) {
           const cred = await Promise.race([
@@ -425,11 +426,18 @@ function showAuth(mode = 'login') {
             mkTimeout(20000),
           ]);
         }
+        succeeded = true;
+        // On success keep the button disabled while the auth-state transition plays out.
+        // If the transition renders a new screen (pair card or app), this form is
+        // discarded. If it fails and calls showAuth(), a fresh form with an enabled
+        // button is rendered, so we never leave the user stuck.
       } catch (err) {
         showErr(authErrMsg(err.code));
       } finally {
-        btn.disabled = false;
-        btn.textContent = isReg ? 'Create account' : 'Sign in';
+        if (!succeeded) {
+          btn.disabled = false;
+          btn.textContent = isReg ? 'Create account' : 'Sign in';
+        }
       }
     }
     function showErr(msg) { errorEl.textContent = msg; errorEl.style.display = ''; }
@@ -485,14 +493,28 @@ async function showPairing(userDoc) {
       const partnerDoc = snap.docs[0];
       if (partnerDoc.id === myId()) throw new Error('own');
       if (partnerDoc.data().partnerId) throw new Error('taken');
-      const coupleRef = await db.collection('couples').add({
-        userA: myId(), userB: partnerDoc.id,
-        startDate: new Date().toISOString().slice(0,10), createdAt: Date.now(),
-      });
+      const coupleRef = await Promise.race([
+        db.collection('couples').add({
+          userA: myId(), userB: partnerDoc.id,
+          startDate: new Date().toISOString().slice(0,10), createdAt: Date.now(),
+        }),
+        mkTimeout(15000),
+      ]);
       const batch = db.batch();
       batch.update(db.collection('users').doc(myId()),         { partnerId: partnerDoc.id, coupleId: coupleRef.id });
       batch.update(db.collection('users').doc(partnerDoc.id),  { partnerId: myId(),        coupleId: coupleRef.id });
-      await batch.commit();
+      await Promise.race([ batch.commit(), mkTimeout(15000) ]);
+      // Directly populate state and start the app — don't rely solely on the
+      // watchUserDoc onSnapshot to fire, which can be unreliable after a batch write.
+      const coupleSnap = await Promise.race([
+        db.collection('couples').doc(coupleRef.id).get(),
+        mkTimeout(15000),
+      ]);
+      if (!coupleSnap.exists) throw new Error('couple-missing');
+      state.myProfile      = { ...(state.myProfile || {}), coupleId: coupleRef.id, partnerId: partnerDoc.id };
+      state.coupleDoc      = { id: coupleSnap.id, ...coupleSnap.data() };
+      state.partnerProfile = { id: partnerDoc.id, ...partnerDoc.data() };
+      await startApp();
     } catch (err) {
       connectBtn.disabled = false; connectBtn.textContent = 'Connect ♡';
       const msgs = { 'not-found': "That code doesn't exist.", 'own': "That's your own code 😊 Share it with your partner.", 'taken': 'That person is already paired.' };
@@ -1948,8 +1970,13 @@ function watchUserDoc(uid) {
       return;
     }
 
-    // Paired: stop watching own doc, load couple + partner, then start app
+    // Paired: stop watching own doc, load couple + partner, then start app.
+    // Guard against double-start: connect() may have already populated state
+    // and called startApp() directly — if the app layout is already visible,
+    // there's nothing more to do here.
     unsub();
+    const appLayout = byId('appLayout');
+    if (appLayout && !appLayout.hidden) return;
     try {
       const fetchTimeout = new Promise((_, rej) =>
         setTimeout(() => rej(new Error('timeout')), 15000)
