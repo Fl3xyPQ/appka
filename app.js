@@ -7,8 +7,10 @@ firebase.initializeApp(FIREBASE_CONFIG);
 const db   = firebase.firestore();
 const auth = firebase.auth();
 
-// Long-polling avoids WebSocket issues behind strict tracking/firewall policies.
-db.settings({ experimentalForceLongPolling: true, merge: true });
+// Auto-detect long polling — falls back to long polling if WebSockets are blocked
+// (e.g. Edge Tracking Prevention). Replaces experimentalForceLongPolling which
+// conflicts with the SDK's own default in Firebase 9.22.0.
+db.settings({ experimentalAutoDetectLongPolling: true, merge: true });
 
 // Edge Tracking Prevention blocks IndexedDB. Use SESSION persistence so tokens
 // are stored in sessionStorage (never blocked for first-party sites).
