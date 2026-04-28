@@ -12,10 +12,10 @@ const auth = firebase.auth();
 // conflicts with the SDK's own default in Firebase 9.22.0.
 db.settings({ experimentalAutoDetectLongPolling: true, merge: true });
 
-// Edge Tracking Prevention blocks IndexedDB. Use SESSION persistence so tokens
-// are stored in sessionStorage (never blocked for first-party sites).
-// We intentionally do NOT await this — a failure must not block onAuthStateChanged.
-try { auth.setPersistence(firebase.auth.Auth.Persistence.SESSION); } catch { /* ignore */ }
+// SESSION persistence is set inside setupAuthListener (chained before
+// onAuthStateChanged) so it is guaranteed to resolve before Firebase reads
+// the current auth state. Setting it here at module scope is too early —
+// Firebase begins its auth state read when the first listener is registered.
 
 let messaging = null;
 try { messaging = firebase.messaging(); } catch { /* unsupported */ }
@@ -1994,44 +1994,58 @@ function setupAuthListener(onReady) {
   let signOutTimer = null;
   let authFired = false;
 
-  // Hard fallback: if onAuthStateChanged hasn't fired within 6s, Firebase is
-  // blocked entirely (e.g. Edge Tracking Prevention blocking IndexedDB init).
-  // Remove the splash and show the login form so the user isn't stuck forever.
+  // Hard fallback: if auth hasn't fired within 8s (includes time for setPersistence
+  // to resolve), Firebase is blocked entirely. Remove the splash and show login.
   const authTimeout = setTimeout(() => {
     if (authFired) return;
     if (onReady) { onReady(); onReady = null; }
     showAuth('login', 'Sign-in service is slow to respond. Please try signing in.');
-  }, 6000);
+  }, 8000);
 
-  auth.onAuthStateChanged(user => {
-    authFired = true;
-    clearTimeout(authTimeout);
-    if (onReady) { onReady(); onReady = null; }
+  // IMPORTANT: Chain onAuthStateChanged AFTER setPersistence resolves.
+  // Firebase begins reading the stored auth state when the first listener is
+  // registered. If we register before setPersistence(SESSION) resolves, Firebase
+  // reads from IndexedDB (the default) — which Edge Tracking Prevention blocks.
+  // By chaining, we guarantee SESSION storage is active before the state read.
+  auth.setPersistence(firebase.auth.Auth.Persistence.SESSION)
+    .catch(() => { /* ignore — still register listener below */ })
+    .then(() => {
+      auth.onAuthStateChanged(user => {
+        authFired = true;
+        clearTimeout(authTimeout);
+        if (onReady) { onReady(); onReady = null; }
 
-    if (!user) {
-      // Stop Firestore listeners immediately to prevent permission-denied errors
-      // while the auth token is no longer valid.
-      stopListeners();
-      // Debounce the UI transition — Firebase often fires null transiently
-      // during token refresh; wait before actually showing the login screen.
-      signOutTimer = setTimeout(() => {
-        state.authUser = null; state.myProfile = null; state.partnerProfile = null; state.coupleDoc = null;
-        byId('appLayout').hidden = true;
-        showAuth();
-      }, 2000);
-      return;
-    }
+        if (!user) {
+          // Stop Firestore listeners immediately — they require an authenticated user.
+          stopListeners();
+          if (state.authUser !== null) {
+            // User WAS signed in: debounce the UI transition to handle transient
+            // null during token refresh (Firebase fires null briefly then fires
+            // the user again). Without this debounce, the login screen would flash.
+            signOutTimer = setTimeout(() => {
+              state.authUser = null; state.myProfile = null; state.partnerProfile = null; state.coupleDoc = null;
+              byId('appLayout').hidden = true;
+              showAuth();
+            }, 2000);
+          } else {
+            // No prior session — show the login form immediately, no blank-screen gap.
+            byId('appLayout').hidden = true;
+            showAuth();
+          }
+          return;
+        }
 
-    if (signOutTimer) { clearTimeout(signOutTimer); signOutTimer = null; }
+        if (signOutTimer) { clearTimeout(signOutTimer); signOutTimer = null; }
 
-    // Skip if the app is already fully visible for this exact uid.
-    if (state.authUser?.uid === user.uid && !byId('appLayout').hidden) {
-      return;
-    }
+        // Skip if the app is already fully visible for this exact uid.
+        if (state.authUser?.uid === user.uid && !byId('appLayout').hidden) {
+          return;
+        }
 
-    state.authUser = user;
-    watchUserDoc(user.uid);
-  });
+        state.authUser = user;
+        watchUserDoc(user.uid);
+      });
+    });
 }
 
 let _watchUserDocRunning = false; // mutex — only one load at a time
@@ -2051,6 +2065,7 @@ async function watchUserDoc(uid, attempt = 0) {
       if (attempt < 6) {
         setTimeout(() => watchUserDoc(uid, attempt + 1), 800 + attempt * 400);
       } else {
+        _watchUserDocRunning = false; // release mutex before showing auth
         showAuth('login', 'Could not find your profile. Please try signing in again.');
       }
       return;
