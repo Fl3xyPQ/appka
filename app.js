@@ -1917,7 +1917,7 @@ function watchUserDoc(uid) {
 
     if (!profile.coupleId) {
       // Only render pairing screen if it isn't already shown
-      if (byId('authPanel').querySelector('.pair-card')) return;
+      if (byId('authPanel')?.querySelector('.pair-card')) return;
       showPairing(profile);
       return;
     }
