@@ -1972,16 +1972,34 @@ function runSplash(onDone) {
    AUTH STATE MACHINE
 ═══════════════════════════════════════════ */
 function setupAuthListener(onReady) {
+  let signOutTimer = null;
+
   auth.onAuthStateChanged(user => {
     console.log('[auth] onAuthStateChanged fired, user:', user ? user.uid : 'null');
     if (onReady) { onReady(); onReady = null; }
+
     if (!user) {
-      state.authUser = null; state.myProfile = null; state.partnerProfile = null; state.coupleDoc = null;
-      stopListeners();
-      byId('appLayout').hidden = true;
-      showAuth();
+      // Firebase often fires null immediately after login during token refresh,
+      // followed by the real user event milliseconds later. Debounce sign-out
+      // handling so a transient null doesn't flash the login screen.
+      signOutTimer = setTimeout(() => {
+        state.authUser = null; state.myProfile = null; state.partnerProfile = null; state.coupleDoc = null;
+        stopListeners();
+        byId('appLayout').hidden = true;
+        showAuth();
+      }, 2000);
       return;
     }
+
+    // User is present — cancel any pending sign-out.
+    if (signOutTimer) { clearTimeout(signOutTimer); signOutTimer = null; }
+
+    // Skip re-loading if the app is already visible for this uid (token refresh).
+    if (state.authUser?.uid === user.uid && !byId('appLayout').hidden) {
+      console.log('[auth] same user, app already visible — skipping reload');
+      return;
+    }
+
     state.authUser = user;
     watchUserDoc(user.uid);
   });
