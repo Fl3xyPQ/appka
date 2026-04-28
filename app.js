@@ -358,7 +358,7 @@ function showTerms() {
     ),
     h('button', { class: 'terms-accept', onClick: () => {
       localStorage.setItem('ours-terms-v1', '1');
-      showAuth();
+      setupAuthListener();
     }}, 'I Accept ♡'),
   );
   showAuthOverlay(card);
@@ -566,10 +566,11 @@ function renderNotifPanel() {
     list.append(h('div', { class: 'notif-empty' }, '✉️ Nothing yet —\nyour partner hasn\'t done anything interesting.'));
     return;
   }
-  const icons = { message: '💬', post: '📸', reaction: '❤️', thinking: '🫶', memory: '🌿', song: '🎵' };
+  const icons = { message: '💬', comment: '💬', post: '📸', reaction: '❤️', thinking: '🫶', memory: '🌿', song: '🎵' };
   state.notifications.forEach(n => {
     const from  = personById(n.fromUid);
-    const names = { message: `${from?.name ?? 'Someone'} sent a message`, post: `${from?.name ?? 'Someone'} shared a moment`,
+    const names = { message: `${from?.name ?? 'Someone'} sent a message`, comment: `${from?.name ?? 'Someone'} commented`,
+      post: `${from?.name ?? 'Someone'} shared a moment`,
       reaction: `${from?.name ?? 'Someone'} reacted`, thinking: `${from?.name ?? 'Someone'} is thinking of you`,
       memory: `${from?.name ?? 'Someone'} added a memory`, song: `${from?.name ?? 'Someone'} shared a song` };
     const item = h('div', { class: `notif-item${n.read ? '' : ' unread'}` },
@@ -620,19 +621,6 @@ function renderSidebar() {
     ),
   );
   footer.append(bellBtn, profileBtn);
-}
-
-function updateUnreadBadge() {
-  const partnerId = them()?.id;
-  const since     = state.lastChatOpenAt || 0;
-  const count     = state.messages.filter(m => m.author === partnerId && new Date(m.date).getTime() > since).length;
-  document.querySelectorAll('[data-view="chat"]').forEach(btn => {
-    let badge = btn.querySelector('.nav-badge');
-    if (count > 0) {
-      if (!badge) { badge = document.createElement('span'); badge.className = 'nav-badge'; btn.append(badge); }
-      badge.textContent = count > 9 ? '9+' : String(count);
-    } else { badge?.remove(); }
-  });
 }
 
 /* ════════════════════════════════════════════
@@ -827,11 +815,11 @@ function buildPostCard(post) {
   const hasImage = !!post.imageUrl;
   const captionEl = h('p', { class: hasImage ? 'post-caption' : 'post-caption post-caption-large' }, post.caption);
 
-  return h('article', { class: 'post-card' },
+  return h('article', { class: 'post-card', 'data-post-id': post.id },
     h('div', { class: 'post-header' },
       mkavatar(post.author, 'sm'),
       h('div', {},
-        h('div', { class: 'post-author-name' }, person.name),
+        h('div', { class: 'post-author-name' }, person?.name ?? 'Unknown'),
         h('div', { class: 'post-meta' }, timeAgo(post.date)),
       ),
     ),
@@ -865,7 +853,7 @@ function buildCommentsSection(post) {
       const newComments = [...(post.comments ?? []), comment];
       db.collection('posts').doc(post.id).update({ comments: newComments }).catch(() => {});
       post.comments = newComments;
-      if (post.author !== myId()) sendNotif('message', text.slice(0, 60), 'feed');
+      if (post.author !== myId()) sendNotif('comment', text.slice(0, 60), 'feed');
       render();
     }
     section.append(h('div', { class: 'comment-form' }, mkavatar(myId(), 'sm'), inp, btn));
@@ -1057,6 +1045,16 @@ function buildMicButton(msgList) {
 /* ════════════════════════════════════════════
    VIEW: CHAT
 ════════════════════════════════════════════ */
+function sendMsg(textarea, msgList) {
+  const text = textarea.value.trim();
+  if (!text) return;
+  textarea.value = '';
+  textarea.style.height = 'auto';
+  db.collection('messages').add({
+    coupleId: coupleId(), author: myId(), text, date: new Date().toISOString(),
+  }).then(() => sendNotif('message', text.slice(0, 60), 'chat')).catch(() => {});
+}
+
 function renderChat(container) {
   const layout = h('div', { class: 'chat-layout' });
   const avs = h('div', { class: 'chat-topbar-avatars' });
@@ -1895,11 +1893,55 @@ function runSplash(onDone) {
 }
 
 /* ═══════════════════════════════════════════
+   AUTH STATE MACHINE
+═══════════════════════════════════════════ */
+function setupAuthListener() {
+  auth.onAuthStateChanged(user => {
+    if (!user) {
+      state.authUser = null; state.myProfile = null; state.partnerProfile = null; state.coupleDoc = null;
+      stopListeners();
+      byId('appLayout').hidden = true;
+      showAuth();
+      return;
+    }
+    state.authUser = user;
+    watchUserDoc(user.uid);
+  });
+}
+
+function watchUserDoc(uid) {
+  const unsub = db.collection('users').doc(uid).onSnapshot(async snap => {
+    if (!snap.exists) return; // profile not yet written (race after register)
+    const profile = { id: snap.id, ...snap.data() };
+    state.myProfile = profile;
+
+    if (!profile.coupleId) {
+      // Only render pairing screen if it isn't already shown
+      if (byId('authPanel')?.querySelector('.pair-card')) return;
+      showPairing(profile);
+      return;
+    }
+
+    // Paired: stop watching own doc, load couple + partner, then start app
+    unsub();
+    try {
+      const [coupleSnap, partnerSnap] = await Promise.all([
+        db.collection('couples').doc(profile.coupleId).get(),
+        profile.partnerId ? db.collection('users').doc(profile.partnerId).get() : Promise.resolve(null),
+      ]);
+      state.coupleDoc      = coupleSnap.exists ? { id: coupleSnap.id, ...coupleSnap.data() } : null;
+      state.partnerProfile = (partnerSnap && partnerSnap.exists) ? { id: partnerSnap.id, ...partnerSnap.data() } : null;
+      await startApp();
+    } catch { showAuth(); }
+  }, () => showAuth());
+}
+
+/* ═══════════════════════════════════════════
    INIT
 ═══════════════════════════════════════════ */
-async function init() {
-  // Nav buttons
-  document.querySelectorAll('.nav-btn').forEach(btn => {
+function init() {
+  // Nav buttons (only buttons that declare a view)
+  document.querySelectorAll('.nav-btn[data-view]').forEach(btn => {
     btn.addEventListener('click', () => navigateTo(btn.dataset.view));
   });
 
@@ -1908,10 +1950,11 @@ async function init() {
   byId('lightboxBg')?.addEventListener('click', closeLightbox);
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLightbox(); });
 
-  // Notification panel close
+  // Notification panel
   byId('notifClose')?.addEventListener('click', closeNotifPanel);
   byId('notifBackdrop')?.addEventListener('click', closeNotifPanel);
   byId('notifMarkAll')?.addEventListener('click', () => { markAllNotifsRead(); renderNotifPanel(); });
+  byId('notifNavBtn')?.addEventListener('click', openNotifPanel);
 
   // Service worker
   if ('serviceWorker' in navigator) {
@@ -1927,15 +1970,13 @@ async function init() {
     });
   }
 
-  // ── DEV BYPASS: skip auth ──────────────────
-  runSplash(async () => {
-    state.authUser   = { uid: 'dev-user' };
-    state.myProfile  = { id: 'dev-user', name: 'You', initial: 'Y', color: '#7F1734', bio: '', coupleId: 'dev-couple', partnerId: 'dev-partner', inviteCode: 'DEVXXX', avatarData: null, lastChatOpenAt: 0 };
-    state.partnerProfile = { id: 'dev-partner', name: 'Partner', initial: 'P', color: '#A8458C', bio: '', coupleId: 'dev-couple', partnerId: 'dev-user', inviteCode: 'DEVYYY', avatarData: null, lastChatOpenAt: 0 };
-    state.coupleDoc  = { id: 'dev-couple', since: Date.now() - 86400000 * 30, users: ['dev-user', 'dev-partner'] };
-    await startApp();
+  runSplash(() => {
+    if (!localStorage.getItem('ours-terms-v1')) {
+      showTerms();
+    } else {
+      setupAuthListener();
+    }
   });
-  // ── END DEV BYPASS ──────────────────────────
 }
 
 init();

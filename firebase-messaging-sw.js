@@ -8,12 +8,12 @@ importScripts('https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging-comp
 // Import config — since this is a service worker we inline the values.
 // After setting up firebase-config.js, copy your values here too.
 firebase.initializeApp({
-  apiKey:            "YOUR_API_KEY",
-  authDomain:        "YOUR_PROJECT_ID.firebaseapp.com",
-  projectId:         "YOUR_PROJECT_ID",
-  storageBucket:     "YOUR_PROJECT_ID.appspot.com",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId:             "YOUR_APP_ID",
+  apiKey:            "AIzaSyBtqcqUeWtZlf3jaQteXJOFSuL7a2FMTeg",
+  authDomain:        "ours-bd76c.firebaseapp.com",
+  projectId:         "ours-bd76c",
+  storageBucket:     "ours-bd76c.firebasestorage.app",
+  messagingSenderId: "350322585766",
+  appId:             "1:350322585766:web:e203b22e1aa053dc518467",
 });
 
 const messaging = firebase.messaging();
