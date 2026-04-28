@@ -36,6 +36,18 @@ const CONFIG = {
 };
 
 /* ════════════════════════════════════════════
+   TOKEN-BASED AUTH
+════════════════════════════════════════════ */
+// Two access tokens — one per person. Each maps to a stable Firebase
+// email/password pair that is created automatically on first use.
+const TOKEN_MAP = {
+  'RADANKA111':      { email: 'radanka@ours-bd76c.app', pass: 'RADANKA111',      name: 'Radanka', color: '#C45F7A', initial: 'R' },
+  'JIRICECECEK1510': { email: 'jiri@ours-bd76c.app',    pass: 'JIRICECECEK1510', name: 'Jiri',    color: '#4A7B9D', initial: 'J' },
+};
+// Both users always share this single couple document.
+const FIXED_COUPLE_ID = 'ours-couple';
+
+/* ════════════════════════════════════════════
    CONSTANTS
 ════════════════════════════════════════════ */
 const MOODS = [
@@ -385,109 +397,78 @@ function showTerms() {
       if (auth.currentUser) {
         watchUserDoc(auth.currentUser.uid);
       } else {
-        showAuth();
+        showTokenEntry();
       }
     }}, 'I Accept ♡'),
   );
   showAuthOverlay(card);
 }
 
-function showAuth(mode = 'login', startError = null) {
-  let currentMode = mode;
-  function render() {
-    const isReg = currentMode === 'register';
-    const errorEl = h('div', { class: 'auth-error', style: startError ? {} : { display: 'none' } });
-    if (startError) { errorEl.textContent = startError; startError = null; }
-    const emailIn = h('input', { class: 'auth-input', type: 'email', placeholder: 'your@email.com', autocomplete: 'email' });
-    const passIn  = h('input', { class: 'auth-input', type: 'password', placeholder: '••••••••', autocomplete: isReg ? 'new-password' : 'current-password' });
-    const nameIn  = isReg ? h('input', { class: 'auth-input', type: 'text', placeholder: 'Your name', maxlength: '24' }) : null;
+function showTokenEntry(startError = null) {
+  const errorEl = h('div', { class: 'auth-error', style: startError ? {} : { display: 'none' } });
+  if (startError) errorEl.textContent = startError;
 
-    let selectedColor = CONFIG.colors[0].hex;
-    const colorRow = isReg ? h('div', { class: 'auth-color-row' }) : null;
-    if (isReg && colorRow) {
-      CONFIG.colors.forEach(c => {
-        const sw = h('button', { class: `auth-color-swatch${selectedColor === c.hex ? ' selected' : ''}`, style: { background: c.hex }, onClick: () => {
-          selectedColor = c.hex;
-          colorRow.querySelectorAll('.auth-color-swatch').forEach(s => s.classList.remove('selected'));
-          sw.classList.add('selected');
-        }});
-        colorRow.append(sw);
-      });
-    }
+  const tokenIn = h('input', {
+    class: 'auth-input',
+    type: 'text',
+    placeholder: 'Enter your code',
+    autocomplete: 'off',
+    style: { textAlign: 'center', letterSpacing: '0.15em', textTransform: 'uppercase', fontSize: '1.1rem' },
+  });
 
-    const btn = h('button', { class: 'auth-submit', onClick: submit }, isReg ? 'Create account' : 'Sign in');
+  const btn = h('button', { class: 'auth-submit', onClick: submit }, 'Enter ♡');
 
-    async function submit() {
-      const email = emailIn.value.trim();
-      const pass  = passIn.value;
-      if (!email || !pass) { showErr('Please fill in all fields.'); return; }
-      if (isReg && !nameIn?.value.trim()) { showErr('Please enter your name.'); return; }
-      btn.disabled = true;
-      btn.textContent = isReg ? 'Creating…' : 'Signing in…';
-      errorEl.style.display = 'none';
-      let succeeded = false;
+  async function submit() {
+    const token = tokenIn.value.trim().toUpperCase();
+    const cfg = TOKEN_MAP[token];
+    if (!cfg) { showErr("That code isn't right."); return; }
+
+    btn.disabled = true;
+    btn.textContent = 'Signing in…';
+    errorEl.style.display = 'none';
+
+    try {
+      // Try sign in with derived credentials (existing account).
       try {
-        if (isReg) {
-          const cred = await Promise.race([
-            auth.createUserWithEmailAndPassword(email, pass),
-            mkTimeout(20000),
-          ]);
-          const name = nameIn.value.trim();
-          await Promise.race([
-            db.collection('users').doc(cred.user.uid).set({
-              name, bio: '', color: selectedColor, initial: name[0].toUpperCase(),
-              inviteCode: genCode(), partnerId: null, coupleId: null,
-              avatarData: null, lastChatOpenAt: 0, createdAt: Date.now(),
-            }),
-            mkTimeout(15000),
-          ]);
-        } else {
-          await Promise.race([
-            auth.signInWithEmailAndPassword(email, pass),
-            mkTimeout(20000),
-          ]);
-        }
-        succeeded = true;
-        // Auth succeeded — replace the frozen button with a loading indicator so
-        // the user knows something is happening while Firestore loads.
-        showAuthOverlay(h('div', { class: 'auth-card', style: { alignItems: 'center', gap: '1rem' } },
-          h('div', { class: 'auth-loading-spinner' }),
-          h('p', { style: { color: 'var(--c-muted, #888)', fontSize: '0.9rem', margin: '0' } }, 'Loading…'),
-        ));
-      } catch (err) {
-        showErr(authErrMsg(err.code));
-      } finally {
-        if (!succeeded) {
-          btn.disabled = false;
-          btn.textContent = isReg ? 'Create account' : 'Sign in';
-        }
+        await Promise.race([auth.signInWithEmailAndPassword(cfg.email, cfg.pass), mkTimeout(20000)]);
+      } catch (signInErr) {
+        const notFound = ['auth/user-not-found', 'auth/invalid-credential', 'auth/invalid-login-credentials'];
+        if (!notFound.includes(signInErr.code)) throw signInErr;
+        // First use — create the Firebase account then provision Firestore docs.
+        const cred = await Promise.race([auth.createUserWithEmailAndPassword(cfg.email, cfg.pass), mkTimeout(20000)]);
+        await provisionAccount(token, cred.user.uid);
       }
+      // Show spinner — onAuthStateChanged → watchUserDoc takes over from here.
+      showAuthOverlay(h('div', { class: 'auth-card', style: { alignItems: 'center', gap: '1rem' } },
+        h('div', { class: 'auth-loading-spinner' }),
+        h('p', { style: { color: 'var(--c-muted, #888)', fontSize: '0.9rem', margin: '0' } }, 'Loading…'),
+      ));
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = 'Enter ♡';
+      const known = {
+        'auth/network-request-failed': 'Network error. Check your connection.',
+        'auth/too-many-requests':      'Too many attempts. Try again later.',
+        'auth/user-disabled':          'This account has been disabled.',
+      };
+      showErr(known[err.code] ?? `Something went wrong (${err.code ?? 'unknown'}). Please try again.`);
     }
-    function showErr(msg) { errorEl.textContent = msg; errorEl.style.display = ''; }
-    [emailIn, passIn, nameIn].filter(Boolean).forEach(el => el.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); }));
-
-    const card = h('div', { class: 'auth-card' },
-      h('span', { class: 'auth-brand' }, 'ours.'),
-      h('p', { class: 'auth-subtitle' }, 'a private space for two'),
-      h('div', { class: 'auth-tab-row' },
-        h('button', { class: `auth-tab${!isReg ? ' active' : ''}`, onClick: () => { currentMode = 'login'; render(); } }, 'Sign in'),
-        h('button', { class: `auth-tab${isReg ? ' active' : ''}`, onClick: () => { currentMode = 'register'; render(); } }, 'Create account'),
-      ),
-      errorEl,
-      isReg ? h('div', { class: 'auth-field' }, h('label', { class: 'auth-label' }, 'Your name'), nameIn) : null,
-      h('div', { class: 'auth-field' }, h('label', { class: 'auth-label' }, 'Email'), emailIn),
-      h('div', { class: 'auth-field' }, h('label', { class: 'auth-label' }, 'Password'), passIn),
-      isReg ? h('div', { class: 'auth-field' }, h('label', { class: 'auth-label' }, 'Your colour'), colorRow) : null,
-      btn,
-    );
-    showAuthOverlay(card);
   }
-  render();
-}
 
-function genCode() {
-  const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  return Array.from({ length: 6 }, () => c[Math.floor(Math.random() * c.length)]).join('');
+  function showErr(msg) { errorEl.textContent = msg; errorEl.style.display = ''; }
+  tokenIn.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
+  tokenIn.addEventListener('input', () => { tokenIn.value = tokenIn.value.toUpperCase(); });
+
+  showAuthOverlay(h('div', { class: 'auth-card' },
+    h('span', { class: 'auth-brand' }, 'ours.'),
+    h('p', { class: 'auth-subtitle' }, 'a private space for two'),
+    errorEl,
+    h('div', { class: 'auth-field' },
+      h('label', { class: 'auth-label' }, 'Your code'),
+      tokenIn,
+    ),
+    btn,
+  ));
 }
 function authErrMsg(code) {
   const m = {
@@ -585,6 +566,48 @@ async function showPairing(userDoc) {
 
   codeIn.addEventListener('keydown', e => { if (e.key === 'Enter') connect(); });
   codeIn.addEventListener('input',   () => { codeIn.value = codeIn.value.toUpperCase(); });
+}
+
+// Provision a fresh user doc and the shared couple doc on first login.
+async function provisionAccount(token, uid) {
+  const cfg = TOKEN_MAP[token];
+
+  // Check the shared couple doc for the partner's UID (if they've logged in before).
+  let partnerUid = null;
+  try {
+    const coupleSnap = await db.collection('couples').doc(FIXED_COUPLE_ID).get();
+    if (coupleSnap.exists) {
+      const d = coupleSnap.data();
+      partnerUid = (d.userA === uid ? d.userB : d.userA) || null;
+    }
+  } catch { /* non-blocking */ }
+
+  // Create my user doc with the fixed couple ID.
+  await db.collection('users').doc(uid).set({
+    name: cfg.name, bio: '', color: cfg.color, initial: cfg.initial,
+    inviteCode: '', partnerId: partnerUid, coupleId: FIXED_COUPLE_ID,
+    avatarData: null, lastChatOpenAt: 0, createdAt: Date.now(),
+  });
+
+  // Create or update the shared couple doc.
+  try {
+    const coupleRef  = db.collection('couples').doc(FIXED_COUPLE_ID);
+    const coupleSnap = await coupleRef.get();
+    if (!coupleSnap.exists) {
+      await coupleRef.set({ userA: uid, userB: null, startDate: new Date().toISOString().slice(0, 10), createdAt: Date.now() });
+    } else {
+      const d = coupleSnap.data();
+      // Fill in whichever slot is empty (or is still pointing at an old UID).
+      if (d.userA !== uid && d.userB !== uid) {
+        await coupleRef.update(d.userA ? { userB: uid } : { userA: uid });
+      }
+    }
+  } catch { /* security rules may block this; app still works without it */ }
+
+  // Best-effort: tell the partner's doc about us so they see the link immediately.
+  if (partnerUid) {
+    db.collection('users').doc(partnerUid).update({ partnerId: uid }).catch(() => {});
+  }
 }
 
 async function startApp() {
@@ -1999,7 +2022,7 @@ function setupAuthListener(onReady) {
   const authTimeout = setTimeout(() => {
     if (authFired) return;
     if (onReady) { onReady(); onReady = null; }
-    showAuth('login', 'Sign-in service is slow to respond. Please try signing in.');
+    showTokenEntry('Sign-in service is slow to respond. Please enter your code again.');
   }, 8000);
 
   // IMPORTANT: Chain onAuthStateChanged AFTER setPersistence resolves.
@@ -2025,12 +2048,12 @@ function setupAuthListener(onReady) {
             signOutTimer = setTimeout(() => {
               state.authUser = null; state.myProfile = null; state.partnerProfile = null; state.coupleDoc = null;
               byId('appLayout').hidden = true;
-              showAuth();
+              showTokenEntry();
             }, 2000);
           } else {
-            // No prior session — show the login form immediately, no blank-screen gap.
+            // No prior session — show the token entry form immediately.
             byId('appLayout').hidden = true;
-            showAuth();
+            showTokenEntry();
           }
           return;
         }
@@ -2065,8 +2088,8 @@ async function watchUserDoc(uid, attempt = 0) {
       if (attempt < 6) {
         setTimeout(() => watchUserDoc(uid, attempt + 1), 800 + attempt * 400);
       } else {
-        _watchUserDocRunning = false; // release mutex before showing auth
-        showAuth('login', 'Could not find your profile. Please try signing in again.');
+        _watchUserDocRunning = false; // release mutex before showing token entry
+        showTokenEntry('Could not find your profile. Please enter your code again.');
       }
       return;
     }
@@ -2075,17 +2098,10 @@ async function watchUserDoc(uid, attempt = 0) {
     state.myProfile = profile;
 
     if (!profile.coupleId) {
+      // With token-based auth, coupleId is always provisioned on sign-in.
+      // If it's missing the user doc is incomplete — re-prompt for their code.
       _watchUserDocRunning = false;
-      showPairing(profile);
-      const unsub = db.collection('users').doc(uid).onSnapshot(snap2 => {
-        if (!snap2.exists) return;
-        const updated = { id: snap2.id, ...snap2.data() };
-        if (updated.coupleId) {
-          unsub();
-          state.myProfile = updated;
-          watchUserDoc(uid);
-        }
-      }, () => { /* ignore realtime errors — user can pair manually */ });
+      showTokenEntry('Your account is incomplete. Please enter your code again.');
       return;
     }
 
@@ -2113,7 +2129,7 @@ async function watchUserDoc(uid, attempt = 0) {
     const msg = err?.message === 'timeout' || err?.code === 'auth/network-request-failed'
       ? 'Connection timed out. Check your internet and try again.'
       : `Could not load your data (${err?.code ?? err?.message ?? 'unknown'}). Please try again.`;
-    showAuth('login', msg);
+    showTokenEntry(msg);
   }
 }
 
@@ -2137,9 +2153,22 @@ function init() {
   byId('notifMarkAll')?.addEventListener('click', () => { markAllNotifsRead(); renderNotifPanel(); });
   byId('notifNavBtn')?.addEventListener('click', openNotifPanel);
 
-  // Service worker
+  // Service worker — unregister any stale SW once per version then re-register.
+  // An old SW with a fetch handler can serve a cached copy of sw.js back to the
+  // browser, preventing it from ever seeing the updated script. Force-unregistering
+  // from the page breaks that cycle. The localStorage key ensures this only runs
+  // once per SW version bump, not on every page load.
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+    const SW_VERSION = 'ours-sw-v7';
+    if (localStorage.getItem('sw-evicted') !== SW_VERSION) {
+      navigator.serviceWorker.getRegistrations()
+        .then(regs => Promise.all(regs.map(r => r.unregister())))
+        .then(() => { localStorage.setItem('sw-evicted', SW_VERSION); })
+        .then(() => navigator.serviceWorker.register('sw.js'))
+        .catch(() => {});
+    } else {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    }
   }
 
   // Hide bottom nav when keyboard opens
