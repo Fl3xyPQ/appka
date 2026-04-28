@@ -432,24 +432,33 @@ function showTokenEntry(startError = null) {
       try {
         await Promise.race([auth.signInWithEmailAndPassword(cfg.email, cfg.pass), mkTimeout(20000)]);
       } catch (signInErr) {
-        const notFound = ['auth/user-not-found', 'auth/invalid-credential', 'auth/invalid-login-credentials'];
+        // These codes all mean "account not found" — fall through to create it.
+        // Note: Firebase >=9.x uses 'auth/invalid-credential' for both bad
+        // password AND missing account (to prevent user enumeration). We treat
+        // all of them as "needs provisioning" since our passwords are derived
+        // deterministically from the token and will never be wrong for an
+        // existing account.
+        const notFound = [
+          'auth/user-not-found',
+          'auth/invalid-credential',
+          'auth/invalid-login-credentials',
+          'auth/INVALID_LOGIN_CREDENTIALS',
+        ];
         if (!notFound.includes(signInErr.code)) throw signInErr;
         // First use — create the Firebase account then provision Firestore docs.
         const cred = await Promise.race([auth.createUserWithEmailAndPassword(cfg.email, cfg.pass), mkTimeout(20000)]);
         await provisionAccount(token, cred.user.uid);
       }
-      // Show spinner — onAuthStateChanged → watchUserDoc takes over from here.
-      showAuthOverlay(h('div', { class: 'auth-card', style: { alignItems: 'center', gap: '1rem' } },
-        h('div', { class: 'auth-loading-spinner' }),
-        h('p', { style: { color: 'var(--c-muted, #888)', fontSize: '0.9rem', margin: '0' } }, 'Loading…'),
-      ));
+      // Auth done — onAuthStateChanged → watchUserDoc → startApp takes over.
+      // Keep the token entry visible (do nothing) so there's no loading screen.
     } catch (err) {
       btn.disabled = false;
       btn.textContent = 'Enter ♡';
       const known = {
-        'auth/network-request-failed': 'Network error. Check your connection.',
-        'auth/too-many-requests':      'Too many attempts. Try again later.',
-        'auth/user-disabled':          'This account has been disabled.',
+        'auth/network-request-failed':  'Network error. Check your connection.',
+        'auth/too-many-requests':       'Too many attempts. Try again later.',
+        'auth/user-disabled':           'This account has been disabled.',
+        'auth/operation-not-allowed':   'Sign-in is not enabled — enable Email/Password in Firebase Console.',
       };
       showErr(known[err.code] ?? `Something went wrong (${err.code ?? 'unknown'}). Please try again.`);
     }
@@ -1995,8 +2004,6 @@ function runSplash(onDone) {
       onDone(() => splash.remove());
     };
     splash.addEventListener('transitionend', finish, { once: true });
-    // Fallback: if transitionend never fires (e.g. prefers-reduced-motion disables transitions)
-    // ensure the app still initialises after the CSS transition duration (600ms).
     setTimeout(finish, 700);
   }, 1800);
 }
